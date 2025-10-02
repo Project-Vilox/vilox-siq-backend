@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualización y Creación de Geocercas</title>
+    <style>
+        #map { height: 600px; width: 100%; display: block; }
+        table { width: 100%; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+    </style>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=drawing&async" defer></script>
+</head>
+<body class="p-4 bg-gray-100">
+<h1 class="text-2xl font-bold mb-4">Visualización y Creación de Geocercas</h1>
+
+<div class="form-container">
+    <h2 class="text-xl mb-2">Crear Nueva Geofence</h2>
+    <form id="geofenceForm" class="space-y-2">
+        <div class="flex flex-row flex-wrap gap-2">
+            <div class="w-1/4">
+                <label for="imei" class="block text-sm font-medium">IMEI (Dispositivo)</label>
+                <select id="imei" class="border rounded p-1 w-full" required>
+                    <!-- Populated dynamically -->
+                </select>
+            </div>
+            <div class="w-1/4">
+                <label for="name" class="block text-sm font-medium">Nombre</label>
+                <input type="text" id="name" class="border rounded p-1 w-full" required>
+            </div>
+            <div class="w-1/4">
+                <label for="alarmtype" class="block text-sm font-medium">Tipo de Alarma</label>
+                <select id="alarmtype" class="border rounded p-1 w-full" required>
+                    <option value="0">Salida</option>
+                    <option value="1">Entrada</option>
+                    <option value="2">Entrada/Salida</option>
+                </select>
+            </div>
+            <div class="w-1/4 flex items-end">
+                <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Crear Geocerca</button>
+            </div>
+        </div>
+        <div class="mt-2">
+            <label class="block text-sm font-medium">Dibujar Polígono (Haz clic para agregar puntos, doble clic para finalizar)</label>
+            <input type="hidden" id="points" name="points">
+            <p id="pointsInfo" class="text-sm text-gray-500">Dibuja tu polígono en el mapa de abajo.</p>
+        </div>
+    </form>
+</div>
+
+<div id="map" class="mb-4"></div>
+<h2 class="text-xl mb-2">Lista de Geocercas</h2>
+<table class="table-auto">
+    <thead>
+    <tr>
+        <th>ID</th>
+        <th>IMEI</th>
+        <th>Nombre</th>
+        <th>Tipo de Alarma</th>
+        <th>Cantidad de Puntos</th>
+    </tr>
+    </thead>
+    <tbody id="geofenceTable"></tbody>
+</table>
+
+<script>
+    let map = null;
+    let drawingManager = null;
+    let selectedShape = null;
+
+    function initializeMap() {
+        map = new google.maps.Map(document.getElementById('map'), {
+            center: { lat: -8.0, lng: -79.0 },
+            zoom: 6,
+            mapTypeId: google.maps.MapTypeId.ROADMAP
+        });
+
+        const mapTypeControl = new google.maps.MapTypeControl();
+        map.controls[google.maps.ControlPosition.TOP_RIGHT].push(mapTypeControl);
+
+        map.mapTypes.set('hybrid', new google.maps.ImageMapType({
+            getTileUrl: function(coord, zoom) {
+                return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${zoom}/${coord.y}/${coord.x}`;
+            },
+            tileSize: new google.maps.Size(256, 256),
+            name: 'Híbrido',
+            maxZoom: 19
+        }));
+
+        mapTypeControl.setMap(map);
+        console.log('Mapa inicializado correctamente');
+    }
+
+    function initializeDrawControl() {
+        if (!map) {
+            console.error('El mapa no está inicializado para el control de dibujo');
+            return;
+        }
+
+        drawingManager = new google.maps.drawing.DrawingManager({
+            drawingMode: google.maps.drawing.OverlayType.POLYGON,
+            drawingControl: true,
+            drawingControlOptions: {
+                position: google.maps.ControlPosition.TOP_CENTER,
+                drawingModes: [google.maps.drawing.OverlayType.POLYGON]
+            },
+            polygonOptions: {
+                editable: true,
+                draggable: true,
+                fillColor: '#bada55',
+                fillOpacity: 0.2,
+                strokeWeight: 2,
+                clickable: true,
+                zIndex: 1
+            }
+        });
+        drawingManager.setMap(map);
+
+        google.maps.event.addListener(drawingManager, 'overlaycomplete', function(event) {
+            if (event.type === google.maps.drawing.OverlayType.POLYGON) {
+                if (selectedShape) {
+                    selectedShape.setMap(null);
+                }
+                selectedShape = event.overlay;
+                const coords = selectedShape.getPath().getArray().map(latLng => [latLng.lat(), latLng.lng()]);
+                if (coords.length < 3) {
+                    alert('El polígono debe tener al menos 3 puntos.');
+                    selectedShape.setMap(null);
+                    selectedShape = null;
+                    return;
+                }
+                document.getElementById('points').value = JSON.stringify(coords);
+                document.getElementById('pointsInfo').textContent = `Polígono dibujado con ${coords.length} puntos. Listo para enviar.`;
+            }
+        });
+    }
+
+    async function fetchDevices() {
+        try {
+            const response = await fetch('/api/devices');
+            if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
+            const data = await response.json();
+            const select = document.getElementById('imei');
+            select.innerHTML = '';
+            data.forEach(device => {
+                const option = document.createElement('option');
+                option.value = device.imei;
+                option.textContent = `${device.deviceName} (${device.imei})`;
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error al obtener dispositivos:', error);
+            alert('No se pudieron cargar los dispositivos: ' + error.message);
+        }
+    }
+
+    async function fetchGeofences() {
+        if (!map) {
+            console.error('El mapa no está inicializado');
+            return;
+        }
+        try {
+            const response = await fetch('/api/geofences');
+            if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
+            const geofences = await response.json();
+
+            const tableBody = document.getElementById('geofenceTable');
+            tableBody.innerHTML = '';
+
+            geofences.forEach(geofence => {
+                const points = JSON.parse(geofence.points);
+                const coords = points.map(p => ({ lat: p[0], lng: p[1] }));
+
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${geofence.id}</td>
+                    <td>${geofence.imei}</td>
+                    <td>${geofence.name}</td>
+                    <td>${geofence.alarmtype === 0 ? 'Salida' : geofence.alarmtype === 1 ? 'Entrada' : 'Entrada/Salida'}</td>
+                    <td>${points.length}</td>
+                `;
+                tableBody.appendChild(row);
+
+                const polygon = new google.maps.Polygon({
+                    paths: coords,
+                    strokeColor: '#FF0000',
+                    strokeOpacity: 0.8,
+                    strokeWeight: 2,
+                    fillColor: '#FF0000',
+                    fillOpacity: 0.35
+                });
+                polygon.setMap(map);
+
+                const bounds = new google.maps.LatLngBounds();
+                coords.forEach(coord => bounds.extend(coord));
+                map.fitBounds(bounds);
+
+                const infoWindow = new google.maps.InfoWindow({
+                    content: `
+                        <b>${geofence.name}</b><br>
+                        IMEI: ${geofence.imei}<br>
+                        Tipo de Alarma: ${geofence.alarmtype === 0 ? 'Salida' : geofence.alarmtype === 1 ? 'Entrada' : 'Entrada/Salida'}
+                    `
+                });
+                polygon.addListener('click', () => infoWindow.open(map, polygon));
+            });
+        } catch (error) {
+            console.error('Error al obtener geocercas:', error);
+            alert('No se pudieron cargar las geocercas: ' + error.message);
+        }
+    }
+
+    document.getElementById('geofenceForm').addEventListener('submit', async function(event) {
+        event.preventDefault();
+
+        const points = document.getElementById('points').value;
+        if (!points || JSON.parse(points).length < 3) {
+            alert('Por favor dibuja un polígono con al menos 3 puntos.');
+            return;
+        }
+
+        const geofence = {
+            imei: document.getElementById('imei').value,
+            name: document.getElementById('name').value,
+            alarmtype: parseInt(document.getElementById('alarmtype').value),
+            points: points
+        };
+
+        try {
+            const response = await fetch('/api/geofences', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(geofence)
+            });
+            if (response.ok) {
+                alert('Geocerca creada exitosamente');
+                this.reset();
+                document.getElementById('pointsInfo').textContent = 'Dibuja tu polígono en el mapa de abajo.';
+                if (selectedShape) {
+                    selectedShape.setMap(null);
+                    selectedShape = null;
+                }
+                fetchGeofences();
+            } else {
+                const errorText = await response.text();
+                alert('Error al crear la geocerca: ' + errorText);
+            }
+        } catch (error) {
+            console.error('Error al crear la geocerca:', error);
+            alert('Error: ' + error.message);
+        }
+    });
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        initializeMap();
+        initializeDrawControl();
+        await fetchDevices();
+        await fetchGeofences();
+    });
+</script>
+</body>
+</html>

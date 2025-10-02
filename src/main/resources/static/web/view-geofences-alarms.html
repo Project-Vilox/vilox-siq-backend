@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualización de Alarmas y Geocercas</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        if (typeof L === 'undefined') {
+            console.error('Leaflet no se cargó correctamente. Revisa la pestaña de red.');
+        }
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        #map { height: 600px; width: 100%; display: block; }
+        table { width: 100%; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .form-container { margin-bottom: 20px; }
+    </style>
+</head>
+<body class="p-4 bg-gray-100">
+<h1 class="text-2xl font-bold mb-4">Visualización de Alarmas y Geocercas</h1>
+
+<div class="form-container">
+    <h2 class="text-xl mb-2">Filtrar Alarmas por IMEI, Fechas y Horas</h2>
+    <form id="filterForm" class="space-y-2 mb-4">
+        <div class="flex flex-row flex-wrap gap-2">
+            <div class="w-1/4">
+                <label for="imeiFilter" class="block text-sm font-medium">IMEI</label>
+                <select id="imeiFilter" class="border rounded p-1 w-full" required>
+                    <option value="">Todos</option>
+                    <!-- Opciones de IMEI se llenarán dinámicamente -->
+                </select>
+            </div>
+            <div class="w-1/4">
+                <label for="startDateTime" class="block text-sm font-medium">Fecha y Hora Inicio</label>
+                <input type="datetime-local" id="startDateTime" class="border rounded p-1 w-full">
+            </div>
+            <div class="w-1/4">
+                <label for="endDateTime" class="block text-sm font-medium">Fecha y Hora Fin</label>
+                <input type="datetime-local" id="endDateTime" class="border rounded p-1 w-full">
+            </div>
+            <div class="w-1/4 flex items-end">
+                <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Filtrar</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<div id="map" class="mb-4"></div>
+
+<h2 class="text-xl mb-2">Lista de Geocercas</h2>
+<table class="table-auto">
+    <thead>
+    <tr>
+        <th>ID</th>
+        <th>IMEI</th>
+        <th>Nombre</th>
+        <th>Tipo de Alarma</th>
+        <th>Cantidad de Puntos</th>
+    </tr>
+    </thead>
+    <tbody id="geofenceTable"></tbody>
+</table>
+
+<h2 class="text-xl mb-2">Lista de Alarmas</h2>
+<table class="table-auto">
+    <thead>
+    <tr>
+        <th>ID</th>
+        <th>IMEI</th>
+        <th>Geofence ID</th>
+        <th>Track Time</th>
+        <th>Entry Time</th>
+        <th>Exit Time</th>
+        <th>Alarm Type</th>
+        <th>Duration (s)</th>
+        <th>Latitude</th>
+        <th>Longitude</th>
+    </tr>
+    </thead>
+    <tbody id="alarmTable"></tbody>
+</table>
+
+<script>
+    let map = null;
+    let drawnItems = null;
+    let drawControl = null;
+
+    function initializeMap() {
+        map = L.map('map').setView([-8.0, -79.0], 6);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        }).addTo(map);
+        map.invalidateSize();
+        console.log('Mapa inicializado correctamente');
+    }
+
+    function initializeDrawControl() {
+        if (!map) {
+            console.error('El mapa no está inicializado para el control de dibujo');
+            return;
+        }
+        drawnItems = new L.FeatureGroup();
+        map.addLayer(drawnItems);
+
+        if (typeof L.Control.Draw === 'undefined') {
+            console.error('Leaflet Draw no se cargó correctamente. Revisa la pestaña de red.');
+            return;
+        }
+
+        drawControl = new L.Control.Draw({
+            draw: {
+                polygon: {
+                    allowIntersection: false,
+                    drawError: { color: '#e1e100', message: '<strong>¡Error!</strong> No puedes dibujar eso.' },
+                    shapeOptions: { color: '#bada55' }
+                },
+                polyline: false,
+                circle: false,
+                rectangle: false,
+                marker: false,
+                circlemarker: false
+            },
+            edit: { featureGroup: drawnItems, remove: false }
+        });
+        map.addControl(drawControl);
+
+        map.on('draw:created', function (e) {
+            const type = e.layerType;
+            const layer = e.layer;
+
+            if (type === 'polygon') {
+                if (drawnItems.getLayers().length > 0) {
+                    drawnItems.clearLayers();
+                }
+                drawnItems.addLayer(layer);
+                const coords = layer.getLatLngs()[0].map(ll => [ll.lat, ll.lng]);
+                if (coords.length < 3) {
+                    alert('El polígono debe tener al menos 3 puntos.');
+                    drawnItems.clearLayers();
+                    return;
+                }
+                document.getElementById('points').value = JSON.stringify(coords);
+                document.getElementById('pointsInfo').textContent = `Polígono dibujado con ${coords.length} puntos. Listo para enviar.`;
+            }
+        });
+    }
+
+    async function fetchGeofences() {
+        if (!map) {
+            console.error('El mapa no está inicializado');
+            return;
+        }
+        try {
+            const response = await fetch('/api/geofences');
+            if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
+            const geofences = await response.json();
+
+            const tableBody = document.getElementById('geofenceTable');
+            tableBody.innerHTML = '';
+
+            map.eachLayer(layer => {
+                if (layer instanceof L.Polygon) {
+                    map.removeLayer(layer);
+                }
+            });
+
+            const bounds = L.latLngBounds();
+
+            geofences.forEach(geofence => {
+                const points = JSON.parse(geofence.points);
+                const coords = points.map(p => [p[0], p[1]]);
+
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${geofence.id}</td>
+                    <td>${geofence.imei}</td>
+                    <td>${geofence.name}</td>
+                    <td>${geofence.alarmtype === 0 ? 'Salida' : geofence.alarmtype === 1 ? 'Entrada' : 'Entrada/Salida'}</td>
+                    <td>${points.length}</td>
+                `;
+                tableBody.appendChild(row);
+
+                const polygon = L.polygon(coords, {
+                    color: 'yellow',
+                    fillColor: 'yellow',
+                    fillOpacity: 0.2
+                }).addTo(map).bindPopup(`
+                    <b>${geofence.name}</b><br>
+                    IMEI: ${geofence.imei}<br>
+                    Tipo de Alarma: ${geofence.alarmtype === 0 ? 'Salida' : geofence.alarmtype === 1 ? 'Entrada' : 'Entrada/Salida'}
+                `);
+
+                bounds.extend(polygon.getBounds());
+            });
+
+            if (geofences.length > 0) {
+                map.fitBounds(bounds);
+            }
+        } catch (error) {
+            console.error('Error al obtener geocercas:', error);
+            alert('No se pudieron cargar las geocercas: ' + error.message);
+        }
+    }
+
+    async function fetchUniqueImeis() {
+        try {
+            const response = await fetch('/api/alarms');
+            if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
+            const alarms = await response.json();
+            const imeis = [...new Set(alarms.map(alarm => alarm.imei))].sort();
+            const select = document.getElementById('imeiFilter');
+            imeis.forEach(imei => {
+                const option = document.createElement('option');
+                option.value = imei;
+                option.textContent = imei;
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error al obtener IMEIs:', error);
+            alert('No se pudieron cargar los IMEIs: ' + error.message);
+        }
+    }
+
+    async function fetchAlarms(imei, startDateTime, endDateTime) {
+        try {
+            const url = new URL('/api/alarms', window.location.origin);
+            if (imei && imei !== "") url.searchParams.append('imei', imei);
+            if (startDateTime) url.searchParams.append('startDateTime', startDateTime);
+            if (endDateTime) url.searchParams.append('endDateTime', endDateTime);
+
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
+            const alarms = await response.json();
+
+            // Clear existing markers
+            map.eachLayer(layer => {
+                if (layer instanceof L.Marker) {
+                    map.removeLayer(layer);
+                }
+            });
+
+            const tableBody = document.getElementById('alarmTable');
+            tableBody.innerHTML = '';
+
+            alarms.forEach(alarm => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${alarm.id}</td>
+                    <td>${alarm.imei}</td>
+                    <td>${alarm.geofenceId}</td>
+                    <td>${new Date(alarm.trackTime * 1000).toLocaleString('es-PE', { timeZone: 'America/Lima' })}</td>
+                    <td>${alarm.entryTime ? new Date(alarm.entryTime * 1000).toLocaleString('es-PE', { timeZone: 'America/Lima' }) : 'N/A'}</td>
+                    <td>${alarm.exitTime ? new Date(alarm.exitTime * 1000).toLocaleString('es-PE', { timeZone: 'America/Lima' }) : 'N/A'}</td>
+                    <td>${alarm.alarmType}</td>
+                    <td>${alarm.duration || 'N/A'}</td>
+                    <td>${alarm.latitude}</td>
+                    <td>${alarm.longitude}</td>
+                `;
+                tableBody.appendChild(row);
+
+                if (alarm.latitude && alarm.longitude) {
+                    L.marker([alarm.latitude, alarm.longitude]).addTo(map)
+                        .bindPopup(`
+                            <b>Alarma ID: ${alarm.id}</b><br>
+                            IMEI: ${alarm.imei}<br>
+                            Tipo: ${alarm.alarmType}<br>
+                            Duración: ${alarm.duration || 'N/A'} s<br>
+                            Hora de Entrada: ${alarm.entryTime ? new Date(alarm.entryTime * 1000).toLocaleString('es-PE', { timeZone: 'America/Lima' }) : 'N/A'}<br>
+                            Hora de Salida: ${alarm.exitTime ? new Date(alarm.exitTime * 1000).toLocaleString('es-PE', { timeZone: 'America/Lima' }) : 'N/A'}
+                        `);
+                }
+            });
+        } catch (error) {
+            console.error('Error al obtener alarmas:', error);
+            alert('No se pudieron cargar las alarmas: ' + error.message);
+        }
+    }
+
+    document.getElementById('filterForm').addEventListener('submit', async function(event) {
+        event.preventDefault();
+        const imei = document.getElementById('imeiFilter').value;
+        const startDateTime = document.getElementById('startDateTime').value;
+        const endDateTime = document.getElementById('endDateTime').value;
+        await fetchAlarms(imei, startDateTime, endDateTime);
+    });
+
+    // Set default dates to today
+    document.addEventListener('DOMContentLoaded', async () => {
+        const today = new Date().toISOString().slice(0, 16); // Format: YYYY-MM-DDTHH:MM
+        document.getElementById('startDateTime').value = today;
+        document.getElementById('endDateTime').value = today;
+
+        initializeMap();
+        initializeDrawControl();
+        await fetchGeofences();
+        await fetchUniqueImeis(); // Llenar el dropdown con IMEIs
+        await fetchAlarms(""); // Cargar todas las alarmas al inicio
+    });
+</script>
+</body>
+</html>

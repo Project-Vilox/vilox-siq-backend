@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualización y Creación de Geocercas</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        if (typeof L === 'undefined') {
+            console.error('Leaflet no se cargó correctamente. Revisa la pestaña de red.');
+        }
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        #map { height: 600px; width: 100%; display: block; }
+        table { width: 100%; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+    </style>
+</head>
+<body class="p-4 bg-gray-100">
+<h1 class="text-2xl font-bold mb-4">Visualización y Creación de Geocercas</h1>
+
+<div class="form-container">
+    <h2 class="text-xl mb-2">Crear Nueva Geocerca</h2>
+    <form id="geofenceForm" class="space-y-2">
+        <div class="flex flex-row flex-wrap gap-2">
+            <div class="w-1/4">
+                <label for="imei" class="block text-sm font-medium">IMEI (Dispositivo)</label>
+                <select id="imei" class="border rounded p-1 w-full" required>
+                    <!-- Populated dynamically -->
+                </select>
+            </div>
+            <div class="w-1/4">
+                <label for="name" class="block text-sm font-medium">Nombre</label>
+                <input type="text" id="name" class="border rounded p-1 w-full" required>
+            </div>
+            <div class="w-1/4">
+                <label for="alarmtype" class="block text-sm font-medium">Tipo de Alarma</label>
+                <select id="alarmtype" class="border rounded p-1 w-full" required>
+                    <option value="0">Salida</option>
+                    <option value="1">Entrada</option>
+                    <option value="2">Entrada/Salida</option>
+                </select>
+            </div>
+            <div class="w-1/4 flex items-end">
+                <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Crear Geocerca</button>
+            </div>
+        </div>
+        <div class="mt-2">
+            <label class="block text-sm font-medium">Dibujar Polígono (Haz clic para agregar puntos, doble clic para finalizar)</label>
+            <input type="hidden" id="points" name="points">
+            <p id="pointsInfo" class="text-sm text-gray-500">Dibuja tu polígono en el mapa de abajo.</p>
+        </div>
+    </form>
+</div>
+
+<div id="map" class="mb-4"></div>
+<h2 class="text-xl mb-2">Lista de Geocercas</h2>
+<table class="table-auto">
+    <thead>
+    <tr>
+        <th>ID</th>
+        <th>IMEI</th>
+        <th>Nombre</th>
+        <th>Tipo de Alarma</th>
+        <th>Cantidad de Puntos</th>
+    </tr>
+    </thead>
+    <tbody id="geofenceTable"></tbody>
+</table>
+
+<script>
+    let map = null;
+    let drawnItems = null;
+    let drawControl = null;
+
+    function initializeMap() {
+        map = L.map('map').setView([-8.0, -79.0], 6);
+
+        // Capa de calles (OpenStreetMap)
+        const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        });
+
+        // Capa satelital (Esri.WorldImagery)
+        const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+        });
+
+        // Control de capas para alternar entre mapas
+        L.control.layers({
+            "Mapa de Calles": streetLayer,
+            "Satélite": satelliteLayer
+        }, {}).addTo(map);
+
+        // Establecer la capa de calles como predeterminada
+        streetLayer.addTo(map);
+
+        map.invalidateSize();
+        console.log('Mapa inicializado correctamente');
+    }
+
+    function initializeDrawControl() {
+        if (!map) {
+            console.error('El mapa no está inicializado para el control de dibujo');
+            return;
+        }
+        drawnItems = new L.FeatureGroup();
+        map.addLayer(drawnItems);
+
+        if (typeof L.Control.Draw === 'undefined') {
+            console.error('Leaflet Draw no se cargó correctamente. Revisa la pestaña de red.');
+            return;
+        }
+
+        drawControl = new L.Control.Draw({
+            draw: {
+                polygon: {
+                    allowIntersection: false,
+                    drawError: { color: '#e1e100', message: '<strong>¡Error!</strong> No puedes dibujar eso.' },
+                    shapeOptions: { color: '#bada55' }
+                },
+                polyline: false,
+                circle: false,
+                rectangle: false,
+                marker: false,
+                circlemarker: false
+            },
+            edit: { featureGroup: drawnItems, remove: false }
+        });
+        map.addControl(drawControl);
+
+        map.on('draw:created', function (e) {
+            const type = e.layerType;
+            const layer = e.layer;
+
+            if (type === 'polygon') {
+                if (drawnItems.getLayers().length > 0) {
+                    drawnItems.clearLayers();
+                }
+                drawnItems.addLayer(layer);
+                const coords = layer.getLatLngs()[0].map(ll => [ll.lat, ll.lng]);
+                if (coords.length < 3) {
+                    alert('El polígono debe tener al menos 3 puntos.');
+                    drawnItems.clearLayers();
+                    return;
+                }
+                document.getElementById('points').value = JSON.stringify(coords);
+                document.getElementById('pointsInfo').textContent = `Polígono dibujado con ${coords.length} puntos. Listo para enviar.`;
+            }
+        });
+    }
+
+    async function fetchDevices() {
+        try {
+            const response = await fetch('/api/devices');
+            if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
+            const data = await response.json();
+            const select = document.getElementById('imei');
+            select.innerHTML = '';
+            data.forEach(device => {
+                const option = document.createElement('option');
+                option.value = device.imei;
+                option.textContent = `${device.deviceName} (${device.imei})`;
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error al obtener dispositivos:', error);
+            alert('No se pudieron cargar los dispositivos: ' + error.message);
+        }
+    }
+
+    async function fetchGeofences() {
+        if (!map) {
+            console.error('El mapa no está inicializado');
+            return;
+        }
+        try {
+            const response = await fetch('/api/geofences');
+            if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
+            const geofences = await response.json();
+
+            const tableBody = document.getElementById('geofenceTable');
+            tableBody.innerHTML = '';
+
+            map.eachLayer(layer => {
+                if (layer instanceof L.Polygon) {
+                    map.removeLayer(layer);
+                }
+            });
+
+            const bounds = L.latLngBounds();
+
+            geofences.forEach(geofence => {
+                const points = JSON.parse(geofence.points);
+                const coords = points.map(p => [p[0], p[1]]);
+
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${geofence.id}</td>
+                    <td>${geofence.imei}</td>
+                    <td>${geofence.name}</td>
+                    <td>${geofence.alarmtype === 0 ? 'Salida' : geofence.alarmtype === 1 ? 'Entrada' : 'Entrada/Salida'}</td>
+                    <td>${points.length}</td>
+                `;
+                tableBody.appendChild(row);
+
+                const polygon = L.polygon(coords, {
+                    color: 'yellow',
+                    fillColor: 'yellow',
+                    fillOpacity: 0.2
+                }).addTo(map).bindPopup(`
+                    <b>${geofence.name}</b><br>
+                    IMEI: ${geofence.imei}<br>
+                    Tipo de Alarma: ${geofence.alarmtype === 0 ? 'Salida' : geofence.alarmtype === 1 ? 'Entrada' : 'Entrada/Salida'}
+                `);
+
+                bounds.extend(polygon.getBounds());
+            });
+
+            if (geofences.length > 0) {
+                map.fitBounds(bounds);
+            }
+        } catch (error) {
+            console.error('Error al obtener geocercas:', error);
+            alert('No se pudieron cargar las geocercas: ' + error.message);
+        }
+    }
+
+    document.getElementById('geofenceForm').addEventListener('submit', async function(event) {
+        event.preventDefault();
+
+        const points = document.getElementById('points').value;
+        if (!points || JSON.parse(points).length < 3) {
+            alert('Por favor dibuja un polígono con al menos 3 puntos.');
+            return;
+        }
+
+        const geofence = {
+            imei: document.getElementById('imei').value,
+            name: document.getElementById('name').value,
+            alarmtype: parseInt(document.getElementById('alarmtype').value),
+            points: points
+        };
+
+        try {
+            const response = await fetch('/api/geofences', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(geofence)
+            });
+            if (response.ok) {
+                alert('Geocerca creada exitosamente');
+                this.reset();
+                document.getElementById('pointsInfo').textContent = 'Dibuja tu polígono en el mapa de abajo.';
+                if (drawnItems) {
+                    drawnItems.clearLayers();
+                }
+                fetchGeofences();
+            } else {
+                const errorText = await response.text();
+                alert('Error al crear la geocerca: ' + errorText);
+            }
+        } catch (error) {
+            console.error('Error al crear la geocerca:', error);
+            alert('Error: ' + error.message);
+        }
+    });
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        initializeMap();
+        initializeDrawControl();
+        await fetchDevices();
+        await fetchGeofences();
+    });
+</script>
+</body>
+</html>

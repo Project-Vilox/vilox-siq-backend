@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Device Tracks</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Tailwind CSS embebido para desarrollo (no usar en producción)
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        clifford: '#da373d',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        #map { height: 500px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .bg-gray-100 { background-color: #f7fafc; }
+        .p-4 { padding: 1rem; }
+        .mb-4 { margin-bottom: 1rem; }
+        .flex { display: flex; }
+        .space-x-4 > * + * { margin-left: 1rem; }
+        .block { display: block; }
+        .text-sm { font-size: 0.875rem; }
+        .font-medium { font-weight: 500; }
+        .border { border-width: 1px; border-style: solid; border-color: #e2e8f0; }
+        .rounded { border-radius: 0.25rem; }
+        .p-1 { padding: 0.25rem; }
+        .bg-blue-500 { background-color: #3b82f6; }
+        .text-white { color: white; }
+        .px-4 { padding-left: 1rem; padding-right: 1rem; }
+        .py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+        .hover\:bg-blue-600:hover { background-color: #2563eb; }
+        .text-2xl { font-size: 1.5rem; }
+        .font-bold { font-weight: 700; }
+        .text-center { text-align: center; }
+    </style>
+</head>
+<body class="container bg-gray-100">
+<h1 class="text-2xl font-bold mb-4">Device Tracks</h1>
+
+<div class="mb-4">
+    <form id="filterForm" class="flex space-x-4">
+        <div>
+            <label for="imei" class="block text-sm font-medium">Select IMEI</label>
+            <select id="imei" class="border rounded p-1">
+                <!-- Populated dynamically -->
+            </select>
+        </div>
+        <div>
+            <label for="beginTime" class="block text-sm font-medium">Start Time (YYYY-MM-DD HH:MM)</label>
+            <input type="datetime-local" id="beginTime" class="border rounded p-1">
+        </div>
+        <div>
+            <label for="endTime" class="block text-sm font-medium">End Time (YYYY-MM-DD HH:MM)</label>
+            <input type="datetime-local" id="endTime" class="border rounded p-1">
+        </div>
+        <div style="align-self: flex-end;">
+            <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Filter</button>
+        </div>
+    </form>
+</div>
+
+<div id="map" class="mb-4"></div>
+
+<table class="table-auto">
+    <thead>
+    <tr>
+        <th>IMEI</th>
+        <th>Time</th>
+        <th>Latitude</th>
+        <th>Longitude</th>
+    </tr>
+    </thead>
+    <tbody id="deviceTable"></tbody>
+</table>
+
+<script>
+    // Initialize Leaflet map
+    const map = L.map('map').setView([-8.0, -79.0], 6); // Center on Peru
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
+
+    // Store geofence layers to manage them
+    let geofenceLayers = [];
+    // Store track layers to manage them
+    let trackLayers = [];
+
+    // Generate random color for each device or geofence
+    function getRandomColor() {
+        const letters = '0123456789ABCDEF';
+        let color = '#';
+        for (let i = 0; i < 6; i++) {
+            color += letters[Math.floor(Math.random() * 16)];
+        }
+        return color;
+    }
+
+    // Format Unix timestamp to local datetime
+    function formatDate(timestamp) {
+        return new Date(timestamp * 1000).toLocaleString('es-PE', { timeZone: 'America/Lima' });
+    }
+
+    // Fetch IMEIs for dropdown
+    async function fetchImeis() {
+        const baseUrl = 'http://localhost:8080';
+        const url = new URL('/api/devices', baseUrl);
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Error HTTP! estado: ${response.status}`);
+            }
+            const devices = await response.json();
+
+            const select = document.getElementById('imei');
+            // Clear existing options
+            select.innerHTML = '';
+
+            // Add default option
+            const defaultOption = document.createElement('option');
+            defaultOption.value = '';
+            defaultOption.textContent = 'Select IMEI';
+            select.appendChild(defaultOption);
+
+            devices.forEach(device => {
+                const option = document.createElement('option');
+                option.value = device.imei;
+                option.textContent = device.imei;
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error al cargar IMEIs:', error);
+            alert('No se pudieron cargar los IMEIs: ' + error.message);
+        }
+    }
+
+    // Fetch geofences from the API
+    async function fetchGeofences() {
+        const baseUrl = 'http://localhost:8080';
+        const url = new URL('/api/geofences', baseUrl);
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Error HTTP! estado: ${response.status}`);
+            }
+            const geofences = await response.json();
+            return geofences;
+        } catch (error) {
+            console.error('Error al cargar geocercas:', error);
+            alert('No se pudieron cargar las geocercas: ' + error.message);
+            return [];
+        }
+    }
+
+    // Calculate center point from polygon points
+    function calculateCenter(pointsArray) {
+        if (!pointsArray || pointsArray.length === 0) return null;
+
+        let minLat = pointsArray[0][0];
+        let maxLat = pointsArray[0][0];
+        let minLng = pointsArray[0][1];
+        let maxLng = pointsArray[0][1];
+
+        for (let i = 1; i < pointsArray.length; i++) {
+            const [lat, lng] = pointsArray[i];
+            minLat = Math.min(minLat, lat);
+            maxLat = Math.max(maxLat, lat);
+            minLng = Math.min(minLng, lng);
+            maxLng = Math.max(maxLng, lng);
+        }
+
+        return [(minLat + maxLat) / 2, (minLng + maxLng) / 2];
+    }
+
+    // Calculate approximate radius from polygon points
+    function calculateRadius(pointsArray, center) {
+        if (!pointsArray || pointsArray.length === 0 || !center) return 0;
+
+        let maxDistance = 0;
+        for (let i = 0; i < pointsArray.length; i++) {
+            const [lat, lng] = pointsArray[i];
+            const distance = Math.sqrt(
+                Math.pow(lat - center[0], 2) +
+                Math.pow(lng - center[1], 2)
+            );
+            maxDistance = Math.max(maxDistance, distance);
+        }
+
+        // Convert to meters (approximate)
+        return maxDistance * 111320;
+    }
+
+    // Display geofences on the map
+    function displayGeofences(geofences) {
+        // Clear existing geofence layers
+        geofenceLayers.forEach(layer => map.removeLayer(layer));
+        geofenceLayers = [];
+
+        // Add new geofences with validation
+        geofences.forEach(geofence => {
+            const { name, points } = geofence;
+
+            // Parse points if it's a string
+            let pointsArray;
+            try {
+                pointsArray = typeof points === 'string' ? JSON.parse(points) : points;
+            } catch (e) {
+                console.error('Error parsing geofence points:', e);
+                return;
+            }
+
+            if (!Array.isArray(pointsArray) || pointsArray.length === 0) {
+                console.error('Geofence con puntos inválidos:', geofence);
+                return;
+            }
+
+            const center = calculateCenter(pointsArray);
+            if (!center) {
+                console.error('No se pudo calcular el centro de la geocerca:', geofence);
+                return;
+            }
+
+            const radius = calculateRadius(pointsArray, center);
+            const color = getRandomColor();
+
+            // Create a polygon for the geofence instead of circle
+            const geofencePolygon = L.polygon(pointsArray, {
+                color: color,
+                fillColor: color,
+                fillOpacity: 0.2
+            }).addTo(map);
+
+            // Add popup with geofence details
+            geofencePolygon.bindPopup(`
+                <b>Geocerca: ${name}</b><br>
+                Tipo: ${geofence.alarmtype === 1 ? 'Entrada' : 'Salida'}<br>
+                Puntos: ${pointsArray.length}
+            `);
+
+            geofenceLayers.push(geofencePolygon);
+        });
+    }
+
+    // Clear all track layers from map
+    function clearTrackLayers() {
+        trackLayers.forEach(layer => map.removeLayer(layer));
+        trackLayers = [];
+    }
+
+    // Fetch and display tracks for selected IMEI
+    async function fetchTracks(imei, beginTime, endTime) {
+        if (!imei) {
+            alert('Por favor seleccione un IMEI');
+            return;
+        }
+
+        const baseUrl = 'http://localhost:8080';
+        const url = new URL('/api/tracks', baseUrl);
+        url.searchParams.append('imei', imei);
+        if (beginTime) url.searchParams.append('beginTime', beginTime);
+        if (endTime) url.searchParams.append('endTime', endTime);
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Error HTTP! estado: ${response.status}`);
+            }
+            const data = await response.json();
+
+            // Clear existing track layers
+            clearTrackLayers();
+
+            // Process tracks if we have data
+            if (data && data.length > 0) {
+                const color = getRandomColor();
+                const coords = data.map(track => {
+                    // Validate track coordinates
+                    if (track.latitude === undefined || track.longitude === undefined ||
+                        isNaN(track.latitude) || isNaN(track.longitude)) {
+                        console.error('Track con coordenadas inválidas:', track);
+                        return null;
+                    }
+                    return [track.latitude, track.longitude];
+                }).filter(coord => coord !== null); // Filter out invalid coordinates
+
+                if (coords.length > 0) {
+                    const polyline = L.polyline(coords, { color }).addTo(map);
+                    trackLayers.push(polyline);
+
+                    // Add popup to each track point
+                    data.forEach(track => {
+                        // Validate track coordinates before creating marker
+                        if (track.latitude !== undefined && track.longitude !== undefined &&
+                            !isNaN(track.latitude) && !isNaN(track.longitude)) {
+                            const marker = L.marker([track.latitude, track.longitude])
+                                .addTo(map)
+                                .bindPopup(`
+                                    <b>IMEI: ${imei}</b><br>
+                                    Fecha: ${formatDate(track.gpstime)}<br>
+                                    Latitud: ${track.latitude}<br>
+                                    Longitud: ${track.longitude}
+                                `);
+                            trackLayers.push(marker);
+                        }
+                    });
+
+                    // Fit map to bounds of this device's tracks
+                    map.fitBounds(coords);
+                }
+            }
+
+            // Populate table
+            const tableBody = document.getElementById('deviceTable');
+            tableBody.innerHTML = ''; // Clear table
+
+            if (data && data.length > 0) {
+                data.forEach(track => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${imei}</td>
+                        <td>${formatDate(track.gpstime)}</td>
+                        <td>${track.latitude !== undefined ? track.latitude : 'N/A'}</td>
+                        <td>${track.longitude !== undefined ? track.longitude : 'N/A'}</td>
+                    `;
+                    tableBody.appendChild(row);
+                });
+            } else {
+                const row = document.createElement('tr');
+                row.innerHTML = `<td colspan="4" class="text-center">No se encontraron datos para el IMEI seleccionado</td>`;
+                tableBody.appendChild(row);
+            }
+
+            // Fetch and display geofences
+            const geofences = await fetchGeofences();
+            displayGeofences(geofences);
+        } catch (error) {
+            console.error('Error al cargar tracks:', error);
+            alert('No se pudieron cargar los tracks: ' + error.message);
+        }
+    }
+
+    // Handle form submission
+    document.getElementById('filterForm').addEventListener('submit', event => {
+        event.preventDefault();
+        const imei = document.getElementById('imei').value;
+        const beginTime = document.getElementById('beginTime').value
+            ? Math.floor(new Date(document.getElementById('beginTime').value).getTime() / 1000)
+            : null;
+        const endTime = document.getElementById('endTime').value
+            ? Math.floor(new Date(document.getElementById('endTime').value).getTime() / 1000)
+            : null;
+        fetchTracks(imei, beginTime, endTime);
+    });
+
+    // Load IMEI options and geofences on page load
+    document.addEventListener('DOMContentLoaded', async () => {
+        await fetchImeis();
+        const geofences = await fetchGeofences();
+        displayGeofences(geofences);
+    });
+</script>
+</body>
+</html>

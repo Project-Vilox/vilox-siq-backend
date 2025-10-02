@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geocercas y Tracks</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        #map { height: 500px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+    </style>
+</head>
+<body class="container bg-gray-100">
+<h1 class="text-2xl font-bold mb-4">Geocercas y Tracks</h1>
+
+<div class="mb-4">
+    <form id="filterForm" class="flex space-x-4">
+        <div>
+            <label for="imei" class="block text-sm font-medium">Seleccionar IMEI</label>
+            <select id="imei" class="border rounded p-1">
+                <!-- Populated dynamically -->
+            </select>
+        </div>
+        <div>
+            <label for="beginTime" class="block text-sm font-medium">Fecha Inicio (YYYY-MM-DD HH:MM)</label>
+            <input type="datetime-local" id="beginTime" class="border rounded p-1">
+        </div>
+        <div>
+            <label for="endTime" class="block text-sm font-medium">Fecha Fin (YYYY-MM-DD HH:MM)</label>
+            <input type="datetime-local" id="endTime" class="border rounded p-1">
+        </div>
+        <div style="align-self: flex-end;">
+            <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Filtrar</button>
+        </div>
+    </form>
+</div>
+
+<div id="map" class="mb-4"></div>
+
+<table class="table-auto">
+    <thead>
+    <tr>
+        <th>IMEI</th>
+        <th>Fecha</th>
+        <th>Latitud</th>
+        <th>Longitud</th>
+    </tr>
+    </thead>
+    <tbody id="deviceTable"></tbody>
+</table>
+
+<script>
+    // Initialize Leaflet map
+    const map = L.map('map').setView([-8.0, -79.0], 6); // Centro en Perú
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
+
+    // Store geofence layers to manage them
+    let geofenceLayers = [];
+    // Store track layers to manage them
+    let trackLayers = [];
+
+    // Generate random color for each device or geofence
+    function getRandomColor() {
+        const letters = '0123456789ABCDEF';
+        let color = '#';
+        for (let i = 0; i < 6; i++) {
+            color += letters[Math.floor(Math.random() * 16)];
+        }
+        return color;
+    }
+
+    // Format Unix timestamp to local datetime
+    function formatDate(timestamp) {
+        return new Date(timestamp * 1000).toLocaleString('es-PE', { timeZone: 'America/Lima' });
+    }
+
+    // Fetch IMEIs for dropdown
+    async function fetchImeis() {
+        try {
+            const response = await fetch('/api/devices');
+            if (!response.ok) {
+                throw new Error(`Error HTTP! estado: ${response.status}`);
+            }
+            const devices = await response.json();
+
+            const select = document.getElementById('imei');
+            select.innerHTML = '';
+
+            const defaultOption = document.createElement('option');
+            defaultOption.value = '';
+            defaultOption.textContent = 'Seleccionar IMEI';
+            select.appendChild(defaultOption);
+
+            devices.forEach(device => {
+                const option = document.createElement('option');
+                option.value = device.imei;
+                option.textContent = device.imei;
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error al cargar IMEIs:', error);
+            alert('No se pudieron cargar los IMEIs: ' + error.message);
+        }
+    }
+
+    // Fetch geofences from the API
+    async function fetchGeofences() {
+        try {
+            const response = await fetch('/api/geofences');
+            if (!response.ok) {
+                throw new Error(`Error HTTP! estado: ${response.status}`);
+            }
+            const geofences = await response.json();
+            return geofences;
+        } catch (error) {
+            console.error('Error al cargar geocercas:', error);
+            alert('No se pudieron cargar las geocercas: ' + error.message);
+            return [];
+        }
+    }
+
+    // Display geofences on the map
+    function displayGeofences(geofences) {
+        geofenceLayers.forEach(layer => map.removeLayer(layer));
+        geofenceLayers = [];
+
+        geofences.forEach(geofence => {
+            const { name, points, alarmtype } = geofence;
+
+            let pointsArray;
+            try {
+                pointsArray = typeof points === 'string' ? JSON.parse(points) : points;
+            } catch (e) {
+                console.error('Error al parsear puntos de geocerca:', e);
+                return;
+            }
+
+            if (!Array.isArray(pointsArray) || pointsArray.length === 0) {
+                console.error('Geocerca con puntos inválidos:', geofence);
+                return;
+            }
+
+            const color = getRandomColor();
+            const geofencePolygon = L.polygon(pointsArray, {
+                color: color,
+                fillColor: color,
+                fillOpacity: 0.2
+            }).addTo(map);
+
+            geofencePolygon.bindPopup(`
+                <b>Geocerca: ${name}</b><br>
+                Tipo: ${alarmtype === 1 ? 'Entrada' : 'Salida'}<br>
+                Puntos: ${pointsArray.length}
+            `);
+
+            geofenceLayers.push(geofencePolygon);
+        });
+    }
+
+    // Clear all track layers from map
+    function clearTrackLayers() {
+        trackLayers.forEach(layer => map.removeLayer(layer));
+        trackLayers = [];
+    }
+
+    // Fetch and display tracks for selected IMEI
+    async function fetchTracks(imei, beginTime, endTime) {
+        if (!imei) {
+            alert('Por favor seleccione un IMEI');
+            return;
+        }
+
+        const url = new URL('/api/tracks', window.location.origin);
+        url.searchParams.append('imei', imei);
+        if (beginTime) url.searchParams.append('beginTime', beginTime);
+        if (endTime) url.searchParams.append('endTime', endTime);
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Error HTTP! estado: ${response.status}`);
+            }
+            const data = await response.json();
+
+            clearTrackLayers();
+
+            if (data && data.length > 0) {
+                const color = getRandomColor();
+                const coords = data.map(track => {
+                    if (track.latitude === undefined || track.longitude === undefined ||
+                        isNaN(track.latitude) || isNaN(track.longitude)) {
+                        console.error('Track con coordenadas inválidas:', track);
+                        return null;
+                    }
+                    return [track.latitude, track.longitude];
+                }).filter(coord => coord !== null);
+
+                if (coords.length > 0) {
+                    const polyline = L.polyline(coords, { color }).addTo(map);
+                    trackLayers.push(polyline);
+
+                    data.forEach(track => {
+                        if (track.latitude !== undefined && track.longitude !== undefined &&
+                            !isNaN(track.latitude) && !isNaN(track.longitude)) {
+                            const marker = L.marker([track.latitude, track.longitude])
+                                .addTo(map)
+                                .bindPopup(`
+                                    <b>IMEI: ${imei}</b><br>
+                                    Fecha: ${formatDate(track.gpstime)}<br>
+                                    Latitud: ${track.latitude}<br>
+                                    Longitud: ${track.longitude}
+                                `);
+                            trackLayers.push(marker);
+                        }
+                    });
+
+                    map.fitBounds(coords);
+                }
+            }
+
+            const tableBody = document.getElementById('deviceTable');
+            tableBody.innerHTML = '';
+
+            if (data && data.length > 0) {
+                data.forEach(track => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${imei}</td>
+                        <td>${formatDate(track.gpstime)}</td>
+                        <td>${track.latitude !== undefined ? track.latitude : 'N/A'}</td>
+                        <td>${track.longitude !== undefined ? track.longitude : 'N/A'}</td>
+                    `;
+                    tableBody.appendChild(row);
+                });
+            } else {
+                const row = document.createElement('tr');
+                row.innerHTML = `<td colspan="4" class="text-center">No se encontraron datos para el IMEI seleccionado</td>`;
+                tableBody.appendChild(row);
+            }
+
+            const geofences = await fetchGeofences();
+            displayGeofences(geofences);
+        } catch (error) {
+            console.error('Error al cargar tracks:', error);
+            alert('No se pudieron cargar los tracks: ' + error.message);
+        }
+    }
+
+    // Handle form submission
+    document.getElementById('filterForm').addEventListener('submit', event => {
+        event.preventDefault();
+        const imei = document.getElementById('imei').value;
+        const beginTime = document.getElementById('beginTime').value
+            ? Math.floor(new Date(document.getElementById('beginTime').value).getTime() / 1000)
+            : null;
+        const endTime = document.getElementById('endTime').value
+            ? Math.floor(new Date(document.getElementById('endTime').value).getTime() / 1000)
+            : null;
+        fetchTracks(imei, beginTime, endTime);
+    });
+
+    // Load IMEI options and geofences on page load
+    document.addEventListener('DOMContentLoaded', async () => {
+        await fetchImeis();
+        const geofences = await fetchGeofences();
+        displayGeofences(geofences);
+    });
+</script>
+</body>
+</html>

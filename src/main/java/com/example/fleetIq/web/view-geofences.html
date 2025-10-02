@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geofence Management</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        #map { height: 500px; }
+        table { width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+    </style>
+</head>
+<body class="p-4 bg-gray-100">
+<h1 class="text-2xl font-bold mb-4">Geofence Management</h1>
+
+<div class="mb-4">
+    <h2 class="text-xl mb-2">Create Geofence</h2>
+    <form id="geofenceForm" class="space-y-2">
+        <div>
+            <label for="imei" class="block text-sm font-medium">IMEI (Device)</label>
+            <select id="imei" class="border rounded p-1 w-full"></select>
+        </div>
+        <div>
+            <label for="name" class="block text-sm font-medium">Name</label>
+            <input type="text" id="name" class="border rounded p-1 w-full" required>
+        </div>
+        <div>
+            <label for="alarmtype" class="block text-sm font-medium">Alarm Type (0: Out, 1: In, 2: In/Out)</label>
+            <select id="alarmtype" class="border rounded p-1 w-full">
+                <option value="0">Out</option>
+                <option value="1">In</option>
+                <option value="2">In/Out</option>
+            </select>
+        </div>
+        <div>
+            <label for="latitude" class="block text-sm font-medium">Latitude (Click on map to set)</label>
+            <input type="number" id="latitude" class="border rounded p-1 w-full" readonly>
+        </div>
+        <div>
+            <label for="longitude" class="block text-sm font-medium">Longitude (Click on map to set)</label>
+            <input type="number" id="longitude" class="border rounded p-1 w-full" readonly>
+        </div>
+        <div>
+            <label for="radius" class="block text-sm font-medium">Radius (100-5000 meters)</label>
+            <input type="number" id="radius" class="border rounded p-1 w-full" min="100" max="5000" required>
+        </div>
+        <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Create Geofence</button>
+    </form>
+</div>
+
+<div id="map" class="mb-4"></div>
+
+<h2 class="text-xl mb-2">Existing Geofences</h2>
+<table class="table-auto">
+    <thead>
+    <tr>
+        <th>ID</th>
+        <th>IMEI</th>
+        <th>Name</th>
+        <th>Alarm Type</th>
+        <th>Latitude</th>
+        <th>Longitude</th>
+        <th>Radius</th>
+    </tr>
+    </thead>
+    <tbody id="geofenceTable"></tbody>
+</table>
+
+<script>
+    // Initialize Leaflet map
+    const map = L.map('map').setView([-8.0, -79.0], 6); // Center on Peru
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
+
+    let currentMarker = null;
+    let currentCircle = null;
+
+    // Click on map to set center
+    map.on('click', function(e) {
+        const lat = e.latlng.lat;
+        const lon = e.latlng.lng;
+        document.getElementById('latitude').value = lat;
+        document.getElementById('longitude').value = lon;
+
+        // Remove previous marker and circle
+        if (currentMarker) map.removeLayer(currentMarker);
+        if (currentCircle) map.removeLayer(currentCircle);
+
+        // Add marker
+        currentMarker = L.marker([lat, lon]).addTo(map);
+
+        // Preview circle if radius is set
+        const radius = parseInt(document.getElementById('radius').value);
+        if (!isNaN(radius)) {
+            currentCircle = L.circle([lat, lon], { radius }).addTo(map);
+        }
+    });
+
+    // Update preview circle when radius changes
+    document.getElementById('radius').addEventListener('input', function() {
+        const radius = parseInt(this.value);
+        const lat = parseFloat(document.getElementById('latitude').value);
+        const lon = parseFloat(document.getElementById('longitude').value);
+
+        if (!isNaN(radius) && !isNaN(lat) && !isNaN(lon)) {
+            if (currentCircle) map.removeLayer(currentCircle);
+            currentCircle = L.circle([lat, lon], { radius }).addTo(map);
+        }
+    });
+
+    // Fetch devices for dropdown
+    async function fetchDevices() {
+        try {
+            const response = await fetch('http://localhost:8080/api/devices');
+            if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
+            const data = await response.json();
+            const select = document.getElementById('imei');
+            data.forEach(device => {
+                const option = document.createElement('option');
+                option.value = device.imei;
+                option.textContent = `${device.deviceName} (${device.imei})`;
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error fetching devices:', error);
+            alert('Failed to load devices: ' + error.message);
+        }
+    }
+
+    // Fetch and display existing geofences
+    async function fetchGeofences() {
+        try {
+            const response = await fetch('http://localhost:8080/api/geofences');
+            if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
+            const data = await response.json();
+
+            const tableBody = document.getElementById('geofenceTable');
+            tableBody.innerHTML = '';
+
+            data.forEach(geofence => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                        <td>${geofence.id}</td>
+                        <td>${geofence.imei}</td>
+                        <td>${geofence.name}</td>
+                        <td>${geofence.alarmtype}</td>
+                        <td>${geofence.latitude}</td>
+                        <td>${geofence.longitude}</td>
+                        <td>${geofence.radius}</td>
+                    `;
+                tableBody.appendChild(row);
+
+                // Draw circle on map
+                L.circle([geofence.latitude, geofence.longitude], {
+                    radius: geofence.radius,
+                    color: 'blue',
+                    fillOpacity: 0.2
+                }).addTo(map).bindPopup(`<b>${geofence.name}</b><br>IMEI: ${geofence.imei}<br>Alarm Type: ${geofence.alarmtype}`);
+            });
+        } catch (error) {
+            console.error('Error fetching geofences:', error);
+            alert('Failed to load geofences: ' + error.message);
+        }
+    }
+
+    // Handle form submission
+    document.getElementById('geofenceForm').addEventListener('submit', async function(event) {
+        event.preventDefault();
+
+        const geofence = {
+            imei: document.getElementById('imei').value,
+            name: document.getElementById('name').value,
+            alarmtype: parseInt(document.getElementById('alarmtype').value),
+            latitude: parseFloat(document.getElementById('latitude').value),
+            longitude: parseFloat(document.getElementById('longitude').value),
+            radius: parseInt(document.getElementById('radius').value)
+        };
+
+        try {
+            const response = await fetch('http://localhost:8080/api/geofences', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(geofence)
+            });
+            if (response.ok) {
+                alert('Geofence created successfully');
+                fetchGeofences(); // Refresh list and map
+                this.reset(); // Reset form
+                if (currentMarker) map.removeLayer(currentMarker);
+                if (currentCircle) map.removeLayer(currentCircle);
+            } else {
+                alert('Error creating geofence: ' + await response.text());
+            }
+        } catch (error) {
+            console.error('Error creating geofence:', error);
+            alert('Error: ' + error.message);
+        }
+    });
+
+    // Load devices and geofences on page load
+    fetchDevices();
+    fetchGeofences();
+</script>
+</body>
+</html>

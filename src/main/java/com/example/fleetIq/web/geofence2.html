@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Point Geofence Creator</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Check if Leaflet is loaded
+        if (typeof L === 'undefined') {
+            console.error('Leaflet failed to load. Check network tab.');
+        }
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        #map { height: 500px; width: 100%; display: block; }
+        table { width: 100%; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+    </style>
+</head>
+<body class="p-4 bg-gray-100">
+<h1 class="text-2xl font-bold mb-4">Multi-Point Geofence Creator</h1>
+<div class="mb-4">
+    <h2 class="text-xl mb-2">Create Geofence</h2>
+    <form id="geofenceForm" class="space-y-2">
+        <div>
+            <label for="imei" class="block text-sm font-medium">IMEI (Device)</label>
+            <select id="imei" class="border rounded p-1 w-full"></select>
+        </div>
+        <div>
+            <label for="name" class="block text-sm font-medium">Name</label>
+            <input type="text" id="name" class="border rounded p-1 w-full" required>
+        </div>
+        <div>
+            <label for="alarmtype" class="block text-sm font-medium">Alarm Type (0: Out, 1: In, 2: In/Out)</label>
+            <select id="alarmtype" class="border rounded p-1 w-full">
+                <option value="0">Out</option>
+                <option value="1">In</option>
+                <option value="2">In/Out</option>
+            </select>
+        </div>
+        <div>
+            <label class="block text-sm font-medium">Draw Polygon (Click to add points, double-click to finish)</label>
+            <input type="hidden" id="points" name="points">
+            <p id="pointsInfo" class="text-sm text-gray-500">Draw your polygon on the map below.</p>
+        </div>
+        <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Create Geofence</button>
+    </form>
+</div>
+<div id="map" class="mb-4"></div>
+<h2 class="text-xl mb-2">Geofence List</h2>
+<table class="table-auto">
+    <thead>
+    <tr>
+        <th>ID</th>
+        <th>IMEI</th>
+        <th>Name</th>
+        <th>Alarm Type</th>
+        <th>Point Count</th>
+    </tr>
+    </thead>
+    <tbody id="geofenceTable"></tbody>
+</table>
+
+<script>
+    let map = null;
+    let drawnItems = null;
+    let drawControl = null;
+
+    // Initialize map with promise
+    function initializeMap() {
+        return new Promise((resolve) => {
+            map = L.map('map').setView([-8.0, -79.0], 6); // Center on Peru
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            }).addTo(map);
+            map.invalidateSize(); // Force resize to ensure rendering
+            console.log('Map initialized successfully with object:', map);
+            resolve(map);
+        });
+    }
+
+    // Initialize Leaflet Draw for polygons
+    function initializeDrawControl() {
+        if (!map) {
+            console.error('Map is not initialized for Draw control');
+            return;
+        }
+        console.log('Initializing Draw control with map:', map);
+        if (drawnItems) {
+            map.removeLayer(drawnItems);
+        }
+        drawnItems = new L.FeatureGroup();
+        map.addLayer(drawnItems);
+
+        if (typeof L.Control.Draw === 'undefined') {
+            console.error('Leaflet Draw failed to load. Check network tab.');
+            return;
+        }
+
+        drawControl = new L.Control.Draw({
+            draw: {
+                polygon: {
+                    allowIntersection: false,
+                    drawError: {
+                        color: '#e1e100',
+                        message: '<strong>Oh snap!</strong> You can\'t draw that!'
+                    },
+                    shapeOptions: {
+                        color: '#bada55'
+                    }
+                },
+                polyline: false,
+                circle: false,
+                rectangle: false,
+                marker: false,
+                circlemarker: false
+            },
+            edit: {
+                featureGroup: drawnItems,
+                remove: false
+            }
+        });
+        map.addControl(drawControl); // Ensure control is added to map
+        console.log('Draw control initialized successfully');
+    }
+
+    // Fetch devices for dropdown
+    async function fetchDevices() {
+        try {
+            const response = await fetch('http://localhost:8080/api/devices');
+            if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
+            const data = await response.json();
+            const select = document.getElementById('imei');
+            select.innerHTML = ''; // Clear existing options
+            data.forEach(device => {
+                const option = document.createElement('option');
+                option.value = device.imei;
+                option.textContent = `${device.deviceName} (${device.imei})`;
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error fetching devices:', error);
+            alert('Failed to load devices: ' + error.message);
+        }
+    }
+
+    // Fetch and display geofences
+    async function fetchGeofences() {
+        if (!map) {
+            console.error('Map is not initialized for geofences');
+            return;
+        }
+        console.log('Fetching geofences with map:', map);
+        try {
+            const response = await fetch('http://localhost:8080/api/geofences');
+            if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
+            const data = await response.json();
+
+            const tableBody = document.getElementById('geofenceTable');
+            tableBody.innerHTML = '';
+
+            // Clear map layers (except tile layer)
+            map.eachLayer(layer => {
+                if (layer instanceof L.Polygon || layer instanceof L.Marker) {
+                    map.removeLayer(layer);
+                }
+            });
+
+            const bounds = L.latLngBounds();
+
+            data.forEach(geofence => {
+                const points = JSON.parse(geofence.points);
+                const coords = points.map(p => [p[0], p[1]]); // Convert to [lat, lon] array
+
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                        <td>${geofence.id}</td>
+                        <td>${geofence.imei}</td>
+                        <td>${geofence.name}</td>
+                        <td>${geofence.alarmtype === 0 ? 'Out' : geofence.alarmtype === 1 ? 'In' : 'In/Out'}</td>
+                        <td>${points.length}</td>
+                    `;
+                tableBody.appendChild(row);
+
+                const polygon = L.polygon(coords, {
+                    color: 'yellow',
+                    fillColor: 'yellow',
+                    fillOpacity: 0.2
+                }).addTo(map).bindPopup(`
+                        <b>${geofence.name}</b><br>
+                        IMEI: ${geofence.imei}<br>
+                        Alarm Type: ${geofence.alarmtype === 0 ? 'Out' : geofence.alarmtype === 1 ? 'In' : 'In/Out'}
+                    `);
+
+                bounds.extend(polygon.getBounds());
+            });
+
+            if (data.length > 0) {
+                map.fitBounds(bounds);
+            }
+        } catch (error) {
+            console.error('Error fetching geofences:', error);
+            alert('Failed to load geofences: ' + error.message);
+        }
+    }
+
+    // Handle form submission
+    document.getElementById('geofenceForm').addEventListener('submit', async function(event) {
+        event.preventDefault();
+
+        const points = document.getElementById('points').value;
+        if (!points || JSON.parse(points).length < 3) {
+            alert('Please draw a polygon with at least 3 points.');
+            return;
+        }
+
+        const geofence = {
+            imei: document.getElementById('imei').value,
+            name: document.getElementById('name').value,
+            alarmtype: parseInt(document.getElementById('alarmtype').value),
+            points: points
+        };
+
+        try {
+            const response = await fetch('http://localhost:8080/api/geofences', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(geofence)
+            });
+            if (response.ok) {
+                alert('Geofence created successfully');
+                fetchGeofences(); // Refresh list and map
+                this.reset();
+                document.getElementById('pointsInfo').textContent = 'Draw your polygon on the map below.';
+                if (drawnItems) {
+                    drawnItems.clearLayers();
+                }
+            } else {
+                alert('Error creating geofence: ' + await response.text());
+            }
+        } catch (error) {
+            console.error('Error creating geofence:', error);
+            alert('Error: ' + error.message);
+        }
+    });
+
+    // Initialize on load
+    document.addEventListener('DOMContentLoaded', async () => {
+        const mapInstance = await initializeMap();
+        if (mapInstance) {
+            map = mapInstance; // Assign to global map
+            console.log('Map assigned globally:', map);
+            initializeDrawControl();
+            await fetchDevices();
+            await fetchGeofences();
+        } else {
+            console.error('Map initialization failed');
+            alert('Failed to load map. Please refresh the page.');
+        }
+    });
+</script>
+</body>
+</html>
