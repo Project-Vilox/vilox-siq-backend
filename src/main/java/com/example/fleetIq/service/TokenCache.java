@@ -33,11 +33,13 @@ public class TokenCache {
     public void renewToken() {
         synchronized (lock) {
             try {
-                this.accessToken = authService.getAccessToken(); // ← Usa AuthService
-                this.expirationTime = System.currentTimeMillis() + 1800000;
-                System.out.println("🔑 Token renovado a las: " + Instant.now());
+                System.out.println("🔄 Intentando renovar token...");
+                this.accessToken = authService.getAccessToken();
+                this.expirationTime = System.currentTimeMillis() + 1800000; // 30 minutos
+                System.out.println("🔑 Token renovado exitosamente a las: " + Instant.now());
             } catch (Exception e) {
-                System.err.println("Error al renovar el token: " + e.getMessage());
+                System.err.println("❌ Error al renovar el token: " + e.getMessage());
+                e.printStackTrace(); // Imprimir stack trace completo para depuración
                 this.expirationTime = System.currentTimeMillis() + 60000; // Reintentar en 1 minuto
             }
         }
