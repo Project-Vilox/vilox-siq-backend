@@ -1,5 +1,4 @@
-
-        package com.example.fleetIq.dto;
+package com.example.fleetIq.dto;
 
 import com.example.fleetIq.model.EvidenciaViaje;
 import lombok.Data;
