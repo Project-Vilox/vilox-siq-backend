@@ -1,0 +1,18 @@
+# Archivos y directorios que Docker debe ignorar
+target/
+!target/fleetIq-0.0.1-SNAPSHOT.war
+.git
+.gitignore
+README.md
+Dockerfile
+.dockerignore
+*.md
+.DS_Store
+.idea/
+*.iml
+*.log
+.mvn/wrapper/maven-wrapper.jar
+.settings/
+.project
+.classpath
+
