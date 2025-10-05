@@ -40,7 +40,7 @@ public class AlarmServiceImpl implements AlarmService {
     @Autowired
     private DuplicateAlarmRepository duplicateAlarmRepository;
 
-    //@Scheduled(fixedRate = 60000)
+    @Scheduled(fixedRate = 60000)
     public void checkAlarmsAutomatically() {
         try {
             // Capturar hora de inicio
