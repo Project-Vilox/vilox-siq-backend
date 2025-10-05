@@ -1,5 +1,9 @@
-# Usar imagen con Maven y OpenJDK 21
-FROM maven:3.9.4-openjdk-21-slim
+# Multi-stage build para optimizar tamaño
+# Stage 1: Build
+FROM openjdk:21-jdk-slim as builder
+
+# Instalar Maven
+RUN apt-get update && apt-get install -y maven && rm -rf /var/lib/apt/lists/*
 
 # Establecer directorio de trabajo
 WORKDIR /app
@@ -16,6 +20,15 @@ COPY src ./src
 # Compilar la aplicación
 RUN mvn clean package -DskipTests
 
+# Stage 2: Runtime
+FROM openjdk:21-jre-slim
+
+# Establecer directorio de trabajo
+WORKDIR /app
+
+# Copiar el JAR compilado desde el stage anterior
+COPY --from=builder /app/target/fleetIq-0.0.1-SNAPSHOT.war app.war
+
 # Exponer el puerto 8080
 EXPOSE 8080
 
@@ -23,5 +36,5 @@ EXPOSE 8080
 ENV SPRING_PROFILES_ACTIVE=prod
 ENV JAVA_OPTS="-Xmx512m -Xms256m"
 
-# Comando para ejecutar la aplicación (forzar perfil prod)
-CMD ["java", "-jar", "-Dspring.profiles.active=prod", "target/fleetIq-0.0.1-SNAPSHOT.war"]
+# Comando para ejecutar la aplicación
+CMD ["java", "-jar", "-Dspring.profiles.active=prod", "app.war"]
