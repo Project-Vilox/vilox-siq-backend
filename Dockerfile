@@ -1,4 +1,3 @@
-# Usar imagen base que sabemos que existe
 FROM eclipse-temurin:21-jdk-jammy
 
 # Instalar Maven
