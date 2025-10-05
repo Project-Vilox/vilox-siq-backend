@@ -60,7 +60,7 @@ public class TrackServiceImpl implements TrackService {
         System.out.println("🚪 Se termina proceso automático de extracción GPS Tracks desde api protrack365. Registros guardados en la tabla tracks: " + savedTracksCount);
     }
 
-    //@Scheduled(fixedRate = 30000)
+    @Scheduled(fixedRate = 30000)
     public void scheduleFetchAndSaveTracks() throws Exception {
         Long beginTime = Instant.now().getEpochSecond() - 24 * 60 * 60;
         Long endTime = Instant.now().getEpochSecond();
