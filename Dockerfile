@@ -1,25 +1,20 @@
-# Usar OpenJDK 21 como imagen base
-FROM openjdk:21-jdk-slim
+# Usar imagen con Maven y OpenJDK 21
+FROM maven:3.9.4-openjdk-21-slim
 
 # Establecer directorio de trabajo
 WORKDIR /app
 
 # Copiar el archivo pom.xml y descargar dependencias (para aprovechar cache de Docker)
 COPY pom.xml ./
-COPY .mvn .mvn
-COPY mvnw ./
-
-# Dar permisos de ejecución al wrapper de Maven
-RUN chmod +x mvnw
 
 # Descargar dependencias (esto se cachea si no cambia el pom.xml)
-RUN ./mvnw dependency:go-offline -B
+RUN mvn dependency:go-offline -B
 
 # Copiar el código fuente
 COPY src ./src
 
 # Compilar la aplicación
-RUN ./mvnw clean package -DskipTests
+RUN mvn clean package -DskipTests
 
 # Exponer el puerto 8080
 EXPOSE 8080
