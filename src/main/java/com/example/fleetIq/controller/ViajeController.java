@@ -14,7 +14,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/viajes")
-@CrossOrigin(origins = "https://923cc1cddf51.ngrok-free.app")
+// @CrossOrigin(origins = {"https://923cc1cddf51.ngrok-free.app", "https://tu-frontend.onrender.com", "http://localhost:3000"})
 @RequiredArgsConstructor
 public class ViajeController {
 
