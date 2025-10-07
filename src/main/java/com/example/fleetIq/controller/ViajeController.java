@@ -8,16 +8,18 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/viajes")
-@CrossOrigin(origins = "https://923cc1cddf51.ngrok-free.app")
 @RequiredArgsConstructor
 public class ViajeController {
 
+    private static final Logger logger = LoggerFactory.getLogger(ViajeController.class);
     private final ViajeService viajeService;
 
     @PostMapping
@@ -62,12 +64,19 @@ public class ViajeController {
     }
 
     @GetMapping("/empresa/{empresaId}")
-    public ResponseEntity<List<ViajeDto>> listarViajesPorEmpresa(@PathVariable String empresaId) {
+    public ResponseEntity<?> listarViajesPorEmpresa(@PathVariable String empresaId) {
         try {
+            logger.info("🔍 Buscando viajes para empresa: {}", empresaId);
             List<ViajeDto> viajes = viajeService.listarViajesPorEmpresa(empresaId);
+            logger.info("✅ Encontrados {} viajes para empresa {}", viajes.size(), empresaId);
             return ResponseEntity.ok(viajes);
         } catch (Exception e) {
-            return ResponseEntity.badRequest().build();
+            logger.error("❌ Error al buscar viajes para empresa {}: {}", empresaId, e.getMessage(), e);
+            return ResponseEntity.badRequest().body(Map.of(
+                "error", "Error al buscar viajes para empresa",
+                "empresaId", empresaId,
+                "message", e.getMessage()
+            ));
         }
     }
 

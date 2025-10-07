@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -52,6 +53,7 @@ public class ViajeServiceImpl implements ViajeService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<ViajeDto> listarViajesPorEmpresa(String empresaId) {
         return viajeRepository.findByEmpresaTransportistaId(empresaId).stream()
                 .map(this::convertToDto)
