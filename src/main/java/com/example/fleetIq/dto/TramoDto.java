@@ -20,4 +20,6 @@ public class TramoDto {
     private String estado;
     private Integer slaMinutos;
     private String observaciones;
+    private String eta;
+    private double avance;
 }
