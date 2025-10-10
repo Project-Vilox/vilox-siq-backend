@@ -12,7 +12,7 @@ import java.util.List;
 public class ViajeDto {
     private String id;
     private String codigoViaje;
-    private String contenedor; // Nuevo campo
+    private String contenedor;
     private EmpresaDto empresaTransportista;
     private EmpresaDto empresaOperador;
     private EmpresaDto empresaCliente;
@@ -32,6 +32,7 @@ public class ViajeDto {
     private LocalDateTime fechaCreacion;
     private LocalDateTime fechaActualizacion;
     private List<TramoDto> tramos; // Relación existente
+
 
     @Data
     public static class EmpresaDto {
@@ -116,6 +117,10 @@ public class ViajeDto {
         private String estado;
         private Integer slaMinutos;
         private String observaciones;
+        private String eta;
+        private String avance;
+
+
     }
 
     @Data

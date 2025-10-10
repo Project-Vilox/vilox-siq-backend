@@ -1,20 +1,33 @@
 package com.example.fleetIq.service;
 
 import com.example.fleetIq.dto.ViajeDto;
+import com.example.fleetIq.model.Establecimiento;
+import com.example.fleetIq.model.Track;
 import com.example.fleetIq.model.Tramo;
 import com.example.fleetIq.model.Viaje;
+import com.example.fleetIq.repository.EstablecimientoRepository;
+import com.example.fleetIq.repository.TrackRepository;
 import com.example.fleetIq.repository.ViajeRepository;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.Hibernate;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import org.json.JSONException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDate;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 @Service
@@ -23,6 +36,15 @@ public class ViajeServiceImpl implements ViajeService {
 
     @Autowired
     private ViajeRepository viajeRepository;
+
+    @Autowired
+    private EstablecimientoRepository establecimientoRepository;
+
+    @Autowired
+    private TrackRepository trackRepository;
+
+    @Value("${google.maps.api.key}")
+    private String googleMapsApiKey;
 
     @Override
     public Viaje guardarViaje(Viaje viaje) {
@@ -85,7 +107,7 @@ public class ViajeServiceImpl implements ViajeService {
         ViajeDto dto = new ViajeDto();
         dto.setId(viaje.getId());
         dto.setCodigoViaje(viaje.getCodigoViaje());
-        dto.setContenedor(viaje.getContenedor()); // Nuevo campo
+        dto.setContenedor(viaje.getContenedor());
         dto.setTipoOperacion(viaje.getTipoOperacion());
         dto.setDocumentoEmbarque(viaje.getDocumentoEmbarque());
         dto.setEstado(viaje.getEstado());
@@ -113,7 +135,6 @@ public class ViajeServiceImpl implements ViajeService {
             empresaTransportistaDto.setActivo(viaje.getEmpresaTransportista().getActivo());
             empresaTransportistaDto.setFechaCreacion(viaje.getEmpresaTransportista().getFechaCreacion());
             empresaTransportistaDto.setFechaActualizacion(viaje.getEmpresaTransportista().getFechaActualizacion());
-            //empresaTransportistaDto.setEmpresaAdministradoraId(viaje.getEmpresaTransportista().getEmpresaAdministradora() != null ? viaje.getEmpresaTransportista().getEmpresaAdministradora().getId() : null);
             dto.setEmpresaTransportista(empresaTransportistaDto);
         }
 
@@ -132,7 +153,6 @@ public class ViajeServiceImpl implements ViajeService {
             empresaOperadorDto.setActivo(viaje.getEmpresaOperador().getActivo());
             empresaOperadorDto.setFechaCreacion(viaje.getEmpresaOperador().getFechaCreacion());
             empresaOperadorDto.setFechaActualizacion(viaje.getEmpresaOperador().getFechaActualizacion());
-            //empresaOperadorDto.setEmpresaAdministradoraId(viaje.getEmpresaOperador().getEmpresaAdministradora() != null ? viaje.getEmpresaOperador().getEmpresaAdministradora().getId() : null);
             dto.setEmpresaOperador(empresaOperadorDto);
         }
 
@@ -151,11 +171,10 @@ public class ViajeServiceImpl implements ViajeService {
             empresaClienteDto.setActivo(viaje.getEmpresaCliente().getActivo());
             empresaClienteDto.setFechaCreacion(viaje.getEmpresaCliente().getFechaCreacion());
             empresaClienteDto.setFechaActualizacion(viaje.getEmpresaCliente().getFechaActualizacion());
-            //empresaClienteDto.setEmpresaAdministradoraId(viaje.getEmpresaCliente().getEmpresaAdministradora() != null ? viaje.getEmpresaCliente().getEmpresaAdministradora().getId() : null);
             dto.setEmpresaCliente(empresaClienteDto);
         }
 
-        // Mapeo de EmpresaNaviera (nueva relación)
+        // Mapeo de EmpresaNaviera
         if (viaje.getEmpresaNaviera() != null) {
             ViajeDto.EmpresaDto empresaNavieraDto = new ViajeDto.EmpresaDto();
             empresaNavieraDto.setId(viaje.getEmpresaNaviera().getId());
@@ -170,8 +189,7 @@ public class ViajeServiceImpl implements ViajeService {
             empresaNavieraDto.setActivo(viaje.getEmpresaNaviera().getActivo());
             empresaNavieraDto.setFechaCreacion(viaje.getEmpresaNaviera().getFechaCreacion());
             empresaNavieraDto.setFechaActualizacion(viaje.getEmpresaNaviera().getFechaActualizacion());
-          //  empresaNavieraDto.setEmpresaAdministradoraId(viaje.getEmpresaNaviera().getEmpresaAdministradora() != null ? viaje.getEmpresaNaviera().getEmpresaAdministradora().getId() : null);
-            dto.setEmpresaNaviera(empresaNavieraDto); // Añadido al DTO
+            dto.setEmpresaNaviera(empresaNavieraDto);
         }
 
         // Mapeo de Vehiculo
@@ -225,7 +243,6 @@ public class ViajeServiceImpl implements ViajeService {
             conductorDto.setActivo(viaje.getConductor().getActivo());
             conductorDto.setFechaCreacion(viaje.getConductor().getFechaCreacion());
 
-            // Initialize conductorEmpresas to avoid LazyInitializationException
             Hibernate.initialize(viaje.getConductor().getConductorEmpresas());
             if (viaje.getConductor().getConductorEmpresas() != null && !viaje.getConductor().getConductorEmpresas().isEmpty()) {
                 conductorDto.setEmpresaId(viaje.getConductor().getConductorEmpresas().get(0).getEmpresa() != null ? viaje.getConductor().getConductorEmpresas().get(0).getEmpresa().getId() : null);
@@ -235,7 +252,7 @@ public class ViajeServiceImpl implements ViajeService {
             dto.setConductor(conductorDto);
         }
 
-        // Mapeo de Tramos
+        // Mapeo de Tramos con ETA y Avance
         if (viaje.getTramos() != null) {
             List<ViajeDto.TramoDto> tramoDtos = viaje.getTramos().stream().map(tramo -> {
                 ViajeDto.TramoDto tramoDto = new ViajeDto.TramoDto();
@@ -286,11 +303,199 @@ public class ViajeServiceImpl implements ViajeService {
                 tramoDto.setEstado(tramo.getEstado() != null ? tramo.getEstado().name() : null);
                 tramoDto.setSlaMinutos(tramo.getSlaMinutos());
                 tramoDto.setObservaciones(tramo.getObservaciones());
+
+                // Calcular ETA y Avance
+                calcularEtaYAvance(tramo, tramoDto);
+
                 return tramoDto;
             }).collect(Collectors.toList());
             dto.setTramos(tramoDtos);
         }
 
         return dto;
+    }
+
+    private void calcularEtaYAvance(Tramo tramo, ViajeDto.TramoDto dto) {
+        try {
+            // 1. Obtener el último Track registrado del vehículo del viaje por IMEI
+            String imei = tramo.getViaje().getVehiculo().getImei();
+            Track trackActual = trackRepository.findLatestTrackByImei(imei);
+
+            if (trackActual == null) {
+                dto.setEta(null);
+                dto.setAvance("0.0");
+                return;
+            }
+
+            Establecimiento origen = tramo.getEstablecimientoOrigen();
+            Establecimiento destino = tramo.getEstablecimientoDestino();
+
+            // Validar que el establecimiento destino tenga coordenadas
+            if (destino.getLatitud() == null || destino.getLongitud() == null) {
+                dto.setEta(null);
+                dto.setAvance("0.0");
+                return;
+            }
+
+            // 2. Calcular distancia y duración desde posición actual hasta destino
+            DuracionDistanciaResult resultadoActualDestino;
+            try {
+                resultadoActualDestino = obtenerDuracionYDistanciaGmaps(
+                        trackActual.getLatitude(),
+                        trackActual.getLongitude(),
+                        destino.getLatitud().doubleValue(),
+                        destino.getLongitud().doubleValue()
+                );
+            } catch (Exception e) {
+                System.err.println("Falling back to OSRM due to Google Maps error: " + e.getMessage());
+                resultadoActualDestino = obtenerDuracionYDistancia(
+                        trackActual.getLatitude(),
+                        trackActual.getLongitude(),
+                        destino.getLatitud().doubleValue(),
+                        destino.getLongitud().doubleValue()
+                );
+            }
+
+            // 3. Calcular ETA = hora actual + tiempo estimado de llegada
+            LocalDateTime horaActual = LocalDateTime.now();
+            LocalDateTime eta = horaActual.plusMinutes((long) resultadoActualDestino.duracionMinutos);
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("HH:mm");
+            dto.setEta(eta.format(formatter));
+
+            // 4. Calcular distancia total del viaje (origen -> destino)
+            if (origen.getLatitud() == null || origen.getLongitud() == null) {
+                dto.setAvance("0.0");
+                return;
+            }
+
+            DuracionDistanciaResult resultadoTotal;
+            try {
+                resultadoTotal = obtenerDuracionYDistanciaGmaps(
+                        origen.getLatitud().doubleValue(),
+                        origen.getLongitud().doubleValue(),
+                        destino.getLatitud().doubleValue(),
+                        destino.getLongitud().doubleValue()
+                );
+            } catch (Exception e) {
+                System.err.println("Falling back to OSRM due to Google Maps error: " + e.getMessage());
+                resultadoTotal = obtenerDuracionYDistancia(
+                        origen.getLatitud().doubleValue(),
+                        origen.getLongitud().doubleValue(),
+                        destino.getLatitud().doubleValue(),
+                        destino.getLongitud().doubleValue()
+                );
+            }
+
+            // 5. Calcular distancia recorrida
+            double distanciaTotal = resultadoTotal.distanciaMetros;
+            double distanciaRestante = resultadoActualDestino.distanciaMetros;
+            double distanciaRecorrida = distanciaTotal - distanciaRestante;
+
+            // 6. Calcular porcentaje de avance
+            double avance = 0.0;
+            if (distanciaTotal > 0) {
+                avance = (distanciaRecorrida / distanciaTotal) * 100.0;
+                avance = Math.max(0.0, Math.min(100.0, avance));
+                avance = Math.round(avance * 10.0) / 10.0;
+            }
+            dto.setAvance(String.valueOf(avance));
+
+        } catch (Exception e) {
+            dto.setEta(null);
+            dto.setAvance("0.0");
+            System.err.println("Error al calcular ETA y avance para tramo " + tramo.getId() + ": " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    private DuracionDistanciaResult obtenerDuracionYDistancia(
+            double origenLat, double origenLon,
+            double destinoLat, double destinoLon) {
+        try {
+            String coordenadasOrigen = String.format(Locale.US, "%.6f,%.6f", origenLon, origenLat);
+            String coordenadasDestino = String.format(Locale.US, "%.6f,%.6f", destinoLon, destinoLat);
+            String url = "https://router.project-osrm.org/route/v1/driving/" + coordenadasOrigen + ";" + coordenadasDestino + "?overview=false";
+
+            HttpClient client = HttpClient.newHttpClient();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            JSONObject json = new JSONObject(response.body());
+
+            if (json.has("routes") && json.getJSONArray("routes").length() > 0) {
+                JSONObject route = json.getJSONArray("routes").getJSONObject(0);
+                double duracionSegundos = route.getDouble("duration");
+                double distanciaMetros = route.getDouble("distance");
+                double duracionMinutos = duracionSegundos / 60.0;
+
+                return new DuracionDistanciaResult(duracionMinutos, distanciaMetros);
+            } else {
+                throw new RuntimeException("No se pudo calcular la ruta entre los puntos especificados");
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Error al calcular duración y distancia con OSRM: " + e.getMessage());
+        }
+    }
+
+    private DuracionDistanciaResult obtenerDuracionYDistanciaGmaps(
+            double origenLat, double origenLon,
+            double destinoLat, double destinoLon) {
+        try {
+            JSONArray requestBody = new JSONArray();
+            JSONObject route = new JSONObject();
+            route.put("origin", new JSONObject()
+                    .put("location", new JSONObject()
+                            .put("latLng", new JSONObject()
+                                    .put("latitude", origenLat)
+                                    .put("longitude", origenLon))));
+            route.put("destination", new JSONObject()
+                    .put("location", new JSONObject()
+                            .put("latLng", new JSONObject()
+                                    .put("latitude", destinoLat)
+                                    .put("longitude", destinoLon))));
+            route.put("travelMode", "DRIVE");
+            requestBody.put(route);
+
+            String url = "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix?fields=distanceMeters,duration&key=" + googleMapsApiKey;
+
+            HttpClient client = HttpClient.newHttpClient();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
+                    .build();
+
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            JSONObject json = new JSONObject(response.body());
+
+            if (json.has("error")) {
+                String errorMessage = json.getJSONObject("error").getString("message");
+                throw new RuntimeException("Error en la respuesta de Routes API: " + errorMessage);
+            }
+
+            JSONObject element = json.getJSONArray("rows").getJSONObject(0);
+            double distanciaMetros = element.getDouble("distanceMeters");
+            String durationStr = element.getString("duration");
+            double duracionSegundos = Double.parseDouble(durationStr.replace("s", ""));
+            double duracionMinutos = duracionSegundos / 60.0;
+
+            return new DuracionDistanciaResult(duracionMinutos, distanciaMetros);
+        } catch (Exception e) {
+            throw new RuntimeException("Error al calcular duración y distancia con Google Maps: " + e.getMessage());
+        }
+    }
+
+    private static class DuracionDistanciaResult {
+        double duracionMinutos;
+        double distanciaMetros;
+
+        DuracionDistanciaResult(double duracionMinutos, double distanciaMetros) {
+            this.duracionMinutos = duracionMinutos;
+            this.distanciaMetros = distanciaMetros;
+        }
     }
 }
