@@ -22,4 +22,13 @@ public class TramoDto {
     private String observaciones;
     private String eta;
     private double avance;
+    private String tracto;
+    private String chasis;
+    private String conductor;
+    private LocalDateTime tardanzaCita1;
+    private LocalDateTime tiempoPermanenciaCita1;
+    private LocalDateTime tiempoAtencionCita1;
+    private LocalDateTime tardanzaCita2;
+    private LocalDateTime tiempoPermanenciaCita2;
+    private LocalDateTime tiempoAtencionCita2;
 }
