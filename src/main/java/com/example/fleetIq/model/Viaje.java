@@ -20,6 +20,9 @@ public class Viaje {
     @Column(name = "codigo_viaje")
     private String codigoViaje;
 
+    @Column(name = "contenedor") // Nuevo campo
+    private String contenedor;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "empresa_transportista_id")
     private Empresa empresaTransportista;

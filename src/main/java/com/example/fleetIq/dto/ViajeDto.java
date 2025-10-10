@@ -12,6 +12,7 @@ import java.util.List;
 public class ViajeDto {
     private String id;
     private String codigoViaje;
+    private String contenedor; // Nuevo campo
     private EmpresaDto empresaTransportista;
     private EmpresaDto empresaOperador;
     private EmpresaDto empresaCliente;

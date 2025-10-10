@@ -85,6 +85,7 @@ public class ViajeServiceImpl implements ViajeService {
         ViajeDto dto = new ViajeDto();
         dto.setId(viaje.getId());
         dto.setCodigoViaje(viaje.getCodigoViaje());
+        dto.setContenedor(viaje.getContenedor()); // Nuevo campo
         dto.setTipoOperacion(viaje.getTipoOperacion());
         dto.setDocumentoEmbarque(viaje.getDocumentoEmbarque());
         dto.setEstado(viaje.getEstado());

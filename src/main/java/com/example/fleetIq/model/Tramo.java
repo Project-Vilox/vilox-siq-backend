@@ -60,6 +60,33 @@ public class Tramo {
     @Column(name = "observaciones")
     private String observaciones;
 
+    @Column(name = "tracto")
+    private String tracto;
+
+    @Column(name = "chasis")
+    private String chasis;
+
+    @Column(name = "conductor")
+    private String conductor;
+
+    @Column(name = "tardanza_cita1")
+    private LocalDateTime tardanzaCita1;
+
+    @Column(name = "tiempo_permanencia_cita1")
+    private LocalDateTime tiempoPermanenciaCita1;
+
+    @Column(name = "tiempo_atencion_cita1")
+    private LocalDateTime tiempoAtencionCita1;
+
+    @Column(name = "tardanza_cita2")
+    private LocalDateTime tardanzaCita2;
+
+    @Column(name = "tiempo_permanencia_cita2")
+    private LocalDateTime tiempoPermanenciaCita2;
+
+    @Column(name = "tiempo_atencion_cita2")
+    private LocalDateTime tiempoAtencionCita2;
+
     public enum TipoActividad {
         recojo, entrega, carga, descarga, inspeccion, despacho_full
     }
