@@ -68,6 +68,15 @@ public class TramoServiceImpl implements TramoService {
             tramo.setEstado(Tramo.EstadoTramo.valueOf(tramoDto.getEstado()));
             tramo.setSlaMinutos(tramoDto.getSlaMinutos());
             tramo.setObservaciones(tramoDto.getObservaciones());
+            tramo.setTracto(tramoDto.getTracto());
+            tramo.setChasis(tramoDto.getChasis());
+            tramo.setConductor(tramoDto.getConductor());
+            tramo.setTardanzaCita1(tramoDto.getTardanzaCita1());
+            tramo.setTiempoPermanenciaCita1(tramoDto.getTiempoPermanenciaCita1());
+            tramo.setTiempoAtencionCita1(tramoDto.getTiempoAtencionCita1());
+            tramo.setTardanzaCita2(tramoDto.getTardanzaCita2());
+            tramo.setTiempoPermanenciaCita2(tramoDto.getTiempoPermanenciaCita2());
+            tramo.setTiempoAtencionCita2(tramoDto.getTiempoAtencionCita2());
 
             Viaje viaje = viajeRepository.findById(tramoDto.getViajeId())
                     .orElseThrow(() -> new IllegalArgumentException("Viaje no encontrado: " + tramoDto.getViajeId()));
@@ -105,6 +114,15 @@ public class TramoServiceImpl implements TramoService {
         dto.setEstado(tramo.getEstado().name());
         dto.setSlaMinutos(tramo.getSlaMinutos());
         dto.setObservaciones(tramo.getObservaciones());
+        dto.setTracto(tramo.getTracto());
+        dto.setChasis(tramo.getChasis());
+        dto.setConductor(tramo.getConductor());
+        dto.setTardanzaCita1(tramo.getTardanzaCita1());
+        dto.setTiempoPermanenciaCita1(tramo.getTiempoPermanenciaCita1());
+        dto.setTiempoAtencionCita1(tramo.getTiempoAtencionCita1());
+        dto.setTardanzaCita2(tramo.getTardanzaCita2());
+        dto.setTiempoPermanenciaCita2(tramo.getTiempoPermanenciaCita2());
+        dto.setTiempoAtencionCita2(tramo.getTiempoAtencionCita2());
 
         // Calcular ETA y Avance
         calcularEtaYAvance(tramo, dto);
