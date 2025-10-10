@@ -43,7 +43,6 @@ public class AlarmServiceImpl implements AlarmService {
     @Scheduled(fixedRate = 60000)
     public void checkAlarmsAutomatically() {
         try {
-            // Capturar hora de inicio
             LocalDateTime startTime = LocalDateTime.now();
             DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -52,18 +51,14 @@ public class AlarmServiceImpl implements AlarmService {
                     .sorted(Comparator.comparing(Track::getGpstime, Comparator.reverseOrder()))
                     .toList();
 
-            // Log en consola: Cantidad de registros a evaluar con hora de inicio
             System.out.println("📊 Estamos evaluando " + latestPendingTracks.size() + " registros de la tabla tracks en proceso. Inicio: " + startTime.format(formatter));
 
-            // Contadores para los resultados
             int alarmRegisteredCount = 0;
             int evaluatedCount = 0;
             int duplicateErrorCount = 0;
 
-            // Procesar los tracks y contar en el momento de la evaluación
             for (Track track : latestPendingTracks) {
                 checkAndLogAlarm(track);
-                // Contar según el estado asignado al track en memoria
                 switch (track.getAlarmStatus()) {
                     case "ALARM_REGISTERED":
                         alarmRegisteredCount++;
@@ -77,10 +72,7 @@ public class AlarmServiceImpl implements AlarmService {
                 }
             }
 
-            // Capturar hora de fin
             LocalDateTime endTime = LocalDateTime.now();
-
-            // Log en consola: Resumen de resultados con hora de fin
             System.out.println("📋 Proceso finalizado: Se procesaron y registraron en la tabla alarms " + alarmRegisteredCount +
                     ", fueron evaluados " + evaluatedCount + " y hubo " + duplicateErrorCount + " errores de duplicado. Fin: " + endTime.format(formatter));
 
@@ -96,12 +88,11 @@ public class AlarmServiceImpl implements AlarmService {
             throw new IllegalArgumentException("Track must have IMEI, latitude, and longitude");
         }
 
-        boolean alarmRegistered = false; // Para rastrear si se generó alguna alarma
-        boolean duplicateError = false; // Para rastrear si hubo error de duplicado
+        boolean alarmRegistered = false;
+        boolean duplicateError = false;
 
         List<Geofence> geofences = geofenceRepository.findAll();
         for (Geofence geofence : geofences) {
-
             JSONArray pointsArray = new JSONArray(geofence.getPoints());
             double[] x = new double[pointsArray.length()];
             double[] y = new double[pointsArray.length()];
@@ -115,13 +106,10 @@ public class AlarmServiceImpl implements AlarmService {
             boolean hasActiveEntry = alarmRepository.existsByImeiAndGeofenceIdAndExitTimeIsNull(track.getImei(), geofence.getId());
 
             if (isCurrentlyInside && !hasActiveEntry) {
-                // ENTRADA: Está dentro y no tiene entrada activa
-                System.out.println("✅ Está dentro y no tiene entrada activa " + track.getImei() + " entered geofence " + geofence.getId());
-                // Verificar si ya existe un duplicado en duplicate_alarms
                 if (duplicateAlarmRepository.existsByImeiAndGeofenceIdAndAlarmType(track.getImei(), geofence.getId(), "ENTRY")) {
-                    System.err.println("⚠️ Duplicado ya registrado en duplicate_alarms para IMEI " + track.getImei() + " y geocerca " + geofence.getId());
+                    System.err.println("⚠️ Duplicate found in duplicate_alarms for IMEI " + track.getImei() + " and geofence " + geofence.getId());
                     duplicateError = true;
-                    continue; // Saltar a la siguiente geocerca
+                    continue;
                 }
                 Alarm alarm = new Alarm();
                 alarm.setImei(truncateString(track.getImei(), 15));
@@ -138,119 +126,96 @@ public class AlarmServiceImpl implements AlarmService {
                 try {
                     alarmRepository.save(alarm);
                     System.out.println("✅ ENTRY: IMEI " + track.getImei() + " entered geofence " + geofence.getId());
-                    alarmRegistered = true; // Marca que se registró una alarma
+                    alarmRegistered = true;
                 } catch (DataIntegrityViolationException e) {
-                    System.err.println("⚠️ Alarm ENTRY duplicada ignorada para IMEI " + track.getImei() + " y geocerca " + geofence.getId() + ": " + e.getMessage());
-                    DuplicateAlarm duplicateAlarm = new DuplicateAlarm();
-                    duplicateAlarm.setImei(truncateString(alarm.getImei(), 15));
-                    duplicateAlarm.setGeofenceId(alarm.getGeofenceId());
-                    duplicateAlarm.setAlarmType(truncateString(alarm.getAlarmType(), 50));
-                    duplicateAlarm.setDeviceName(truncateString(alarm.getDeviceName(), 255));
-                    duplicateAlarm.setPlateNumber(truncateString(alarm.getPlateNumber(), 50));
-                    duplicateAlarm.setTrackTime(alarm.getTrackTime());
-                    duplicateAlarm.setLatitude(alarm.getLatitude());
-                    duplicateAlarm.setLongitude(alarm.getLongitude());
-                    duplicateAlarm.setEntryTime(alarm.getEntryTime());
-                    duplicateAlarm.setExitTime(alarm.getExitTime());
-                    duplicateAlarm.setDuration(alarm.getDuration());
-                    // Truncar el mensaje de error a 255 caracteres
-                    String errorMessage = e.getMessage();
-                    duplicateAlarm.setErrorDescription(errorMessage != null && errorMessage.length() > 255 ? errorMessage.substring(0, 255) : errorMessage);
-                    try {
-                        System.out.println("📝 Intentando guardar en duplicate_alarms: imei=" + duplicateAlarm.getImei() +
-                                ", geofence_id=" + duplicateAlarm.getGeofenceId() +
-                                ", alarm_type=" + duplicateAlarm.getAlarmType() +
-                                ", device_name=" + truncateString(duplicateAlarm.getDeviceName(), 50) +
-                                ", plate_number=" + truncateString(duplicateAlarm.getPlateNumber(), 50) +
-                                ", error_description=" + truncateString(duplicateAlarm.getErrorDescription(), 50));
-                        duplicateAlarmRepository.save(duplicateAlarm);
-                        duplicateError = true; // Marca que hubo un error de duplicado
-                    } catch (Throwable ex) {
-                        System.err.println("❌ Error al guardar en duplicate_alarms para IMEI " + track.getImei() + " y geocerca " + geofence.getId() + ": " + ex.getMessage());
-                        ex.printStackTrace();
-                        duplicateError = true; // Marca como error de duplicado aunque falle el guardado
-                    }
+                    System.err.println("⚠️ Duplicate ENTRY ignored for IMEI " + track.getImei() + " and geofence " + geofence.getId() + ": " + e.getMessage());
+                    saveDuplicateAlarm(alarm, e.getMessage()); // Modificado
+                    duplicateError = true;
                 }
 
             } else if (!isCurrentlyInside && hasActiveEntry) {
-                // SALIDA: No está dentro pero tiene entrada activa
-                Alarm activeAlarm = alarmRepository.findByImeiAndGeofenceIdAndExitTimeIsNull(track.getImei(), geofence.getId());
+                List<Alarm> activeAlarms = alarmRepository.findByImeiAndGeofenceIdAndExitTimeIsNull(track.getImei(), geofence.getId()); // Modificado
 
-                if (activeAlarm != null) {
-                    // Cerrar la alarma de entrada existente
-                    System.out.println("✅ Cerrar la alarma de entrada existente " + track.getImei() + " entered geofence " + geofence.getId());
-                    activeAlarm.setExitTime(System.currentTimeMillis() / 1000L);
-                    activeAlarm.setAlarmType("ENTRY");
-                    alarmRepository.save(activeAlarm);
+                if (activeAlarms.size() > 1) { // Modificado
+                    System.err.println("⚠️ Multiple active alarms found for IMEI " + track.getImei() + " and geofence " + geofence.getId() + ". Closing older alarms."); // Modificado
+                    activeAlarms.sort(Comparator.comparing(Alarm::getEntryTime).reversed()); // Modificado
+                    for (int i = 1; i < activeAlarms.size(); i++) { // Modificado
+                        Alarm oldAlarm = activeAlarms.get(i); // Modificado
+                        oldAlarm.setExitTime(System.currentTimeMillis() / 1000L); // Modificado
+                        oldAlarm.setAlarmType("ENTRY_EXIT"); // Modificado
+                        alarmRepository.save(oldAlarm); // Modificado
+                        System.out.println("🔧 Closed duplicate alarm ID: " + oldAlarm.getId()); // Modificado
+                    } // Modificado
+                } // Modificado
 
-                    // Crear un nuevo registro para la salida
-                    Alarm exitAlarm = new Alarm();
-                    exitAlarm.setImei(truncateString(track.getImei(), 15));
-                    exitAlarm.setGeofenceId(geofence.getId());
-                    exitAlarm.setTrackTime(track.getGpstime());
-                    exitAlarm.setAlarmType("EXIT");
-                    exitAlarm.setDeviceName(truncateString(deviceRepository.findById(Long.valueOf(track.getImei())).map(Device::getDeviceName).orElse("Unknown"), 255));
-                    exitAlarm.setPlateNumber(truncateString(deviceRepository.findById(Long.valueOf(track.getImei())).map(Device::getPlateNumber).orElse("Unknown"), 50));
-                    exitAlarm.setLatitude(track.getLatitude());
-                    exitAlarm.setLongitude(track.getLongitude());
-                    exitAlarm.setEntryTime(activeAlarm.getEntryTime());
-                    exitAlarm.setExitTime(System.currentTimeMillis() / 1000L);
+                Alarm activeAlarm = activeAlarms.get(0); // Modificado
+                activeAlarm.setExitTime(System.currentTimeMillis() / 1000L);
+                activeAlarm.setAlarmType("ENTRY");
+                alarmRepository.save(activeAlarm);
 
-                    try {
-                        alarmRepository.save(exitAlarm);
-                        long duration = exitAlarm.getExitTime() - exitAlarm.getEntryTime();
-                        System.out.println("🚪 EXIT: IMEI " + track.getImei() + " exited geofence " + geofence.getId() + " (Duration: " + duration + " seconds)");
-                        alarmRegistered = true; // Marca que se registró una alarma
-                    } catch (DataIntegrityViolationException e) {
-                        System.err.println("⚠️ Alarm EXIT duplicada ignorada para IMEI " + track.getImei() + " y geocerca " + geofence.getId() + ": " + e.getMessage());
-                        DuplicateAlarm duplicateAlarm = new DuplicateAlarm();
-                        duplicateAlarm.setImei(truncateString(exitAlarm.getImei(), 15));
-                        duplicateAlarm.setGeofenceId(exitAlarm.getGeofenceId());
-                        duplicateAlarm.setAlarmType(truncateString(exitAlarm.getAlarmType(), 50));
-                        duplicateAlarm.setDeviceName(truncateString(exitAlarm.getDeviceName(), 255));
-                        duplicateAlarm.setPlateNumber(truncateString(exitAlarm.getPlateNumber(), 50));
-                        duplicateAlarm.setTrackTime(exitAlarm.getTrackTime());
-                        duplicateAlarm.setLatitude(exitAlarm.getLatitude());
-                        duplicateAlarm.setLongitude(exitAlarm.getLongitude());
-                        duplicateAlarm.setEntryTime(exitAlarm.getEntryTime());
-                        duplicateAlarm.setExitTime(exitAlarm.getExitTime());
-                        duplicateAlarm.setDuration(exitAlarm.getDuration());
-                        // Truncar el mensaje de error a 255 caracteres
-                        String errorMessage = e.getMessage();
-                        duplicateAlarm.setErrorDescription(errorMessage != null && errorMessage.length() > 255 ? errorMessage.substring(0, 255) : errorMessage);
-                        try {
-                            System.out.println("📝 Intentando guardar en duplicate_alarms: imei=" + duplicateAlarm.getImei() +
-                                    ", geofence_id=" + duplicateAlarm.getGeofenceId() +
-                                    ", alarm_type=" + duplicateAlarm.getAlarmType() +
-                                    ", device_name=" + truncateString(duplicateAlarm.getDeviceName(), 50) +
-                                    ", plate_number=" + truncateString(duplicateAlarm.getPlateNumber(), 50) +
-                                    ", error_description=" + truncateString(duplicateAlarm.getErrorDescription(), 50));
-                            duplicateAlarmRepository.save(duplicateAlarm);
-                            duplicateError = true; // Marca que hubo un error de duplicado
-                        } catch (Throwable ex) {
-                            System.err.println("❌ Error al guardar en duplicate_alarms para IMEI " + track.getImei() + " y geocerca " + geofence.getId() + ": " + ex.getMessage());
-                            ex.printStackTrace();
-                            duplicateError = true; // Marca como error de duplicado aunque falle el guardado
-                        }
-                    }
+                Alarm exitAlarm = new Alarm();
+                exitAlarm.setImei(truncateString(track.getImei(), 15));
+                exitAlarm.setGeofenceId(geofence.getId());
+                exitAlarm.setTrackTime(track.getGpstime());
+                exitAlarm.setAlarmType("EXIT");
+                exitAlarm.setDeviceName(truncateString(deviceRepository.findById(Long.valueOf(track.getImei())).map(Device::getDeviceName).orElse("Unknown"), 255));
+                exitAlarm.setPlateNumber(truncateString(deviceRepository.findById(Long.valueOf(track.getImei())).map(Device::getPlateNumber).orElse("Unknown"), 50));
+                exitAlarm.setLatitude(track.getLatitude());
+                exitAlarm.setLongitude(track.getLongitude());
+                exitAlarm.setEntryTime(activeAlarm.getEntryTime());
+                exitAlarm.setExitTime(System.currentTimeMillis() / 1000L);
+
+                try {
+                    alarmRepository.save(exitAlarm);
+                    long duration = exitAlarm.getExitTime() - exitAlarm.getEntryTime();
+                    System.out.println("🚪 EXIT: IMEI " + track.getImei() + " exited geofence " + geofence.getId() + " (Duration: " + duration + " seconds)");
+                    alarmRegistered = true;
+                } catch (DataIntegrityViolationException e) {
+                    System.err.println("⚠️ Duplicate EXIT ignored for IMEI " + track.getImei() + " and geofence " + geofence.getId() + ": " + e.getMessage());
+                    saveDuplicateAlarm(exitAlarm, e.getMessage()); // Modificado
+                    duplicateError = true;
                 }
             }
-            // No imprimimos mensajes para casos donde no hay cambio de estado
         }
 
-        // Actualizar status del track después de procesar todas las geofences
         if (duplicateError) {
             track.setAlarmStatus("ERROR_DUPLICATE");
-            track.setAlarmErrorDescription("Duplicado detectado durante procesamiento");
+            track.setAlarmErrorDescription("Duplicate detected during processing");
         } else if (alarmRegistered) {
             track.setAlarmStatus("ALARM_REGISTERED");
-            track.setAlarmErrorDescription(null); // Limpiar descripción de error
+            track.setAlarmErrorDescription(null);
         } else {
             track.setAlarmStatus("EVALUATED");
-            track.setAlarmErrorDescription(null); // Limpiar descripción de error
+            track.setAlarmErrorDescription(null);
         }
         trackRepository.save(track);
     }
+
+    private void saveDuplicateAlarm(Alarm alarm, String errorMessage) { // Modificado
+        DuplicateAlarm duplicateAlarm = new DuplicateAlarm(); // Modificado
+        duplicateAlarm.setImei(truncateString(alarm.getImei(), 15)); // Modificado
+        duplicateAlarm.setGeofenceId(alarm.getGeofenceId()); // Modificado
+        duplicateAlarm.setAlarmType(truncateString(alarm.getAlarmType(), 50)); // Modificado
+        duplicateAlarm.setDeviceName(truncateString(alarm.getDeviceName(), 255)); // Modificado
+        duplicateAlarm.setPlateNumber(truncateString(alarm.getPlateNumber(), 50)); // Modificado
+        duplicateAlarm.setTrackTime(alarm.getTrackTime()); // Modificado
+        duplicateAlarm.setLatitude(alarm.getLatitude()); // Modificado
+        duplicateAlarm.setLongitude(alarm.getLongitude()); // Modificado
+        duplicateAlarm.setEntryTime(alarm.getEntryTime()); // Modificado
+        duplicateAlarm.setExitTime(alarm.getExitTime()); // Modificado
+        duplicateAlarm.setDuration(alarm.getDuration()); // Modificado
+        duplicateAlarm.setErrorDescription(truncateString(errorMessage, 255)); // Modificado
+
+        try { // Modificado
+            System.out.println("📝 Saving to duplicate_alarms: imei=" + duplicateAlarm.getImei() + // Modificado
+                    ", geofence_id=" + duplicateAlarm.getGeofenceId() + // Modificado
+                    ", alarm_type=" + duplicateAlarm.getAlarmType()); // Modificado
+            duplicateAlarmRepository.save(duplicateAlarm); // Modificado
+        } catch (Throwable ex) { // Modificado
+            System.err.println("❌ Error saving to duplicate_alarms for IMEI " + alarm.getImei() + " and geofence " + alarm.getGeofenceId() + ": " + ex.getMessage()); // Modificado
+            ex.printStackTrace(); // Modificado
+        } // Modificado
+    } // Modificado
 
     @Override
     public List<Alarm> getAlarms() {

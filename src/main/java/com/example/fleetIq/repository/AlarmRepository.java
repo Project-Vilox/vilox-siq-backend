@@ -21,7 +21,7 @@ public interface AlarmRepository extends JpaRepository<Alarm, Long> {
     boolean existsByImeiAndGeofenceIdAndExitTimeIsNull(String imei, Long geofenceId);
 
     // Método para obtener una alarma activa (sin tiempo de salida)
-    Alarm findByImeiAndGeofenceIdAndExitTimeIsNull(String imei, Long geofenceId);
+    List<Alarm> findByImeiAndGeofenceIdAndExitTimeIsNull(String imei, Long geofenceId);
 
     // Método para obtener todas las alarmas activas de un IMEI
     List<Alarm> findByImeiAndExitTimeIsNull(String imei);
@@ -47,4 +47,5 @@ public interface AlarmRepository extends JpaRepository<Alarm, Long> {
     List<Alarm> findByImeiAndTrackTimeBetween(String imei, Long start, Long end);
 
     Alarm findByImeiAndGeofenceIdAndAlarmTypeAndExitTimeIsNull(String imei, Long geofenceId, String alarmType);
+
 }
