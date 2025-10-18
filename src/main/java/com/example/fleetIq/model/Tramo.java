@@ -70,22 +70,22 @@ public class Tramo {
     private String conductor;
 
     @Column(name = "tardanza_cita1")
-    private LocalDateTime tardanzaCita1;
+    private Integer tardanzaCita1;
 
     @Column(name = "tiempo_permanencia_cita1")
-    private LocalDateTime tiempoPermanenciaCita1;
+    private Integer tiempoPermanenciaCita1;
 
     @Column(name = "tiempo_atencion_cita1")
-    private LocalDateTime tiempoAtencionCita1;
+    private Integer tiempoAtencionCita1;
 
     @Column(name = "tardanza_cita2")
-    private LocalDateTime tardanzaCita2;
+    private Integer tardanzaCita2;
 
     @Column(name = "tiempo_permanencia_cita2")
-    private LocalDateTime tiempoPermanenciaCita2;
+    private Integer tiempoPermanenciaCita2;
 
     @Column(name = "tiempo_atencion_cita2")
-    private LocalDateTime tiempoAtencionCita2;
+    private Integer tiempoAtencionCita2;
 
     public enum TipoActividad {
         recojo, entrega, carga, descarga, inspeccion, despacho_full

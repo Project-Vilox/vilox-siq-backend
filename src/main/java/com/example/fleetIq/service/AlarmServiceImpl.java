@@ -1,15 +1,7 @@
 package com.example.fleetIq.service;
 
-import com.example.fleetIq.model.Alarm;
-import com.example.fleetIq.model.Device;
-import com.example.fleetIq.model.DuplicateAlarm;
-import com.example.fleetIq.model.Geofence;
-import com.example.fleetIq.model.Track;
-import com.example.fleetIq.repository.AlarmRepository;
-import com.example.fleetIq.repository.DeviceRepository;
-import com.example.fleetIq.repository.DuplicateAlarmRepository;
-import com.example.fleetIq.repository.GeofenceRepository;
-import com.example.fleetIq.repository.TrackRepository;
+import com.example.fleetIq.model.*;
+import com.example.fleetIq.repository.*;
 import org.json.JSONArray;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -17,10 +9,14 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 public class AlarmServiceImpl implements AlarmService {
@@ -40,7 +36,13 @@ public class AlarmServiceImpl implements AlarmService {
     @Autowired
     private DuplicateAlarmRepository duplicateAlarmRepository;
 
-    @Scheduled(fixedRate = 60000)
+    @Autowired
+    private TramoRepository tramoRepository;
+
+    @Autowired
+    private SlaPorEstablecimientoRepository slaPorEstablecimientoRepo;
+
+    @Scheduled(fixedRate = 2000)
     public void checkAlarmsAutomatically() {
         try {
             LocalDateTime startTime = LocalDateTime.now();
@@ -51,7 +53,7 @@ public class AlarmServiceImpl implements AlarmService {
                     .sorted(Comparator.comparing(Track::getGpstime, Comparator.reverseOrder()))
                     .toList();
 
-            System.out.println("📊 Estamos evaluando " + latestPendingTracks.size() + " registros de la tabla tracks en proceso. Inicio: " + startTime.format(formatter));
+            System.out.println("📊 Estamos evaluando Evento de Entrada o Salida de " + latestPendingTracks.size() + " registros de la tabla tracks en proceso. Inicio: " + startTime.format(formatter));
 
             int alarmRegisteredCount = 0;
             int evaluatedCount = 0;
@@ -103,6 +105,10 @@ public class AlarmServiceImpl implements AlarmService {
             }
 
             boolean isCurrentlyInside = isPointInPolygon(track.getLongitude(), track.getLatitude(), x, y);
+
+            if (isCurrentlyInside) {
+                System.err.println("se encuentra dentro de la geocerca : " + geofence.getId() + " : " + isCurrentlyInside);
+            }
             boolean hasActiveEntry = alarmRepository.existsByImeiAndGeofenceIdAndExitTimeIsNull(track.getImei(), geofence.getId());
 
             if (isCurrentlyInside && !hasActiveEntry) {
@@ -123,32 +129,34 @@ public class AlarmServiceImpl implements AlarmService {
                 alarm.setEntryTime(System.currentTimeMillis() / 1000L);
                 alarm.setExitTime(null);
 
+                evaluacionCita(alarm);
+
                 try {
                     alarmRepository.save(alarm);
                     System.out.println("✅ ENTRY: IMEI " + track.getImei() + " entered geofence " + geofence.getId());
                     alarmRegistered = true;
                 } catch (DataIntegrityViolationException e) {
                     System.err.println("⚠️ Duplicate ENTRY ignored for IMEI " + track.getImei() + " and geofence " + geofence.getId() + ": " + e.getMessage());
-                    saveDuplicateAlarm(alarm, e.getMessage()); // Modificado
+                    saveDuplicateAlarm(alarm, e.getMessage());
                     duplicateError = true;
                 }
 
             } else if (!isCurrentlyInside && hasActiveEntry) {
-                List<Alarm> activeAlarms = alarmRepository.findByImeiAndGeofenceIdAndExitTimeIsNull(track.getImei(), geofence.getId()); // Modificado
+                List<Alarm> activeAlarms = alarmRepository.findByImeiAndGeofenceIdAndExitTimeIsNull(track.getImei(), geofence.getId());
 
-                if (activeAlarms.size() > 1) { // Modificado
-                    System.err.println("⚠️ Multiple active alarms found for IMEI " + track.getImei() + " and geofence " + geofence.getId() + ". Closing older alarms."); // Modificado
-                    activeAlarms.sort(Comparator.comparing(Alarm::getEntryTime).reversed()); // Modificado
-                    for (int i = 1; i < activeAlarms.size(); i++) { // Modificado
-                        Alarm oldAlarm = activeAlarms.get(i); // Modificado
-                        oldAlarm.setExitTime(System.currentTimeMillis() / 1000L); // Modificado
-                        oldAlarm.setAlarmType("ENTRY_EXIT"); // Modificado
-                        alarmRepository.save(oldAlarm); // Modificado
-                        System.out.println("🔧 Closed duplicate alarm ID: " + oldAlarm.getId()); // Modificado
-                    } // Modificado
-                } // Modificado
+                if (activeAlarms.size() > 1) {
+                    System.err.println("⚠️ Multiple active alarms found for IMEI " + track.getImei() + " and geofence " + geofence.getId() + ". Closing older alarms.");
+                    activeAlarms.sort(Comparator.comparing(Alarm::getEntryTime).reversed());
+                    for (int i = 1; i < activeAlarms.size(); i++) {
+                        Alarm oldAlarm = activeAlarms.get(i);
+                        oldAlarm.setExitTime(System.currentTimeMillis() / 1000L);
+                        oldAlarm.setAlarmType("ENTRY_EXIT");
+                        alarmRepository.save(oldAlarm);
+                        System.out.println("🔧 Closed duplicate alarm ID: " + oldAlarm.getId());
+                    }
+                }
 
-                Alarm activeAlarm = activeAlarms.get(0); // Modificado
+                Alarm activeAlarm = activeAlarms.get(0);
                 activeAlarm.setExitTime(System.currentTimeMillis() / 1000L);
                 activeAlarm.setAlarmType("ENTRY");
                 alarmRepository.save(activeAlarm);
@@ -169,10 +177,13 @@ public class AlarmServiceImpl implements AlarmService {
                     alarmRepository.save(exitAlarm);
                     long duration = exitAlarm.getExitTime() - exitAlarm.getEntryTime();
                     System.out.println("🚪 EXIT: IMEI " + track.getImei() + " exited geofence " + geofence.getId() + " (Duration: " + duration + " seconds)");
+
+                    evaluacionCita(exitAlarm);
+
                     alarmRegistered = true;
                 } catch (DataIntegrityViolationException e) {
                     System.err.println("⚠️ Duplicate EXIT ignored for IMEI " + track.getImei() + " and geofence " + geofence.getId() + ": " + e.getMessage());
-                    saveDuplicateAlarm(exitAlarm, e.getMessage()); // Modificado
+                    saveDuplicateAlarm(exitAlarm, e.getMessage());
                     duplicateError = true;
                 }
             }
@@ -191,31 +202,256 @@ public class AlarmServiceImpl implements AlarmService {
         trackRepository.save(track);
     }
 
-    private void saveDuplicateAlarm(Alarm alarm, String errorMessage) { // Modificado
-        DuplicateAlarm duplicateAlarm = new DuplicateAlarm(); // Modificado
-        duplicateAlarm.setImei(truncateString(alarm.getImei(), 15)); // Modificado
-        duplicateAlarm.setGeofenceId(alarm.getGeofenceId()); // Modificado
-        duplicateAlarm.setAlarmType(truncateString(alarm.getAlarmType(), 50)); // Modificado
-        duplicateAlarm.setDeviceName(truncateString(alarm.getDeviceName(), 255)); // Modificado
-        duplicateAlarm.setPlateNumber(truncateString(alarm.getPlateNumber(), 50)); // Modificado
-        duplicateAlarm.setTrackTime(alarm.getTrackTime()); // Modificado
-        duplicateAlarm.setLatitude(alarm.getLatitude()); // Modificado
-        duplicateAlarm.setLongitude(alarm.getLongitude()); // Modificado
-        duplicateAlarm.setEntryTime(alarm.getEntryTime()); // Modificado
-        duplicateAlarm.setExitTime(alarm.getExitTime()); // Modificado
-        duplicateAlarm.setDuration(alarm.getDuration()); // Modificado
-        duplicateAlarm.setErrorDescription(truncateString(errorMessage, 255)); // Modificado
+    private void evaluacionCita(Alarm alarm) {
+        try {
+            List<Object[]> results = alarmRepository.findTramosPendientesByImeiAndGeofence(alarm.getImei());
 
-        try { // Modificado
-            System.out.println("📝 Saving to duplicate_alarms: imei=" + duplicateAlarm.getImei() + // Modificado
-                    ", geofence_id=" + duplicateAlarm.getGeofenceId() + // Modificado
-                    ", alarm_type=" + duplicateAlarm.getAlarmType()); // Modificado
-            duplicateAlarmRepository.save(duplicateAlarm); // Modificado
-        } catch (Throwable ex) { // Modificado
-            System.err.println("❌ Error saving to duplicate_alarms for IMEI " + alarm.getImei() + " and geofence " + alarm.getGeofenceId() + ": " + ex.getMessage()); // Modificado
-            ex.printStackTrace(); // Modificado
-        } // Modificado
-    } // Modificado
+            if (!results.isEmpty()) {
+                for (Object[] row : results) {
+                    String tramoId = (String) row[0];
+                    Object horaLlegadaProgramada = row[1];
+                    Object horaSalidaProgramada = row[2];
+                    String establecimientoId = (String) row[3];
+                    String tipoActividad = (String) row[4];
+                    String viajeId = (String) row[5];
+                    Integer orden = (Integer) row[6];
+                    Long geocercaId = (Long) row[7];
+                    String tipoGeocerca = (String) row[8];
+                    Integer ordenado = (Integer) row[9];
+
+                    System.out.println("📍 Evaluación de cita para " + alarm.getAlarmType() + ":");
+                    System.out.println("   - Tramo ID: " + tramoId);
+                    System.out.println("   - IMEI: " + alarm.getImei());
+                    System.out.println("   - Tipo Actividad: " + tipoActividad);
+                    System.out.println("   - Hora llegada programada: " + horaLlegadaProgramada);
+                    System.out.println("   - Hora salida programada: " + horaSalidaProgramada);
+                    System.out.println("   - SLA (minutos): " + establecimientoId);
+                    System.out.println("   - Entry Time (epoch): " + alarm.getEntryTime());
+                    System.out.println("   - Exit Time (epoch): " + alarm.getExitTime());
+
+                    // Buscar el tramo en la base de datos 
+                    Tramo tramo = tramoRepository.findById(tramoId).orElse(null);
+
+                    if (ordenado == 1 && Objects.equals(alarm.getGeofenceId(), geocercaId) && alarm.getAlarmType().equals("ENTRY") && tramo.getHoraLlegadaReal() == null) {
+                        // Convertir epoch a LocalDateTime
+                        System.out.println(" Entro en condifcion : " + orden + " - De la Geocerca nro: " + geocercaId);
+
+                        LocalDateTime horaLlegadaReal = LocalDateTime.ofInstant(
+                                Instant.ofEpochSecond(alarm.getEntryTime()),
+                                ZoneId.systemDefault()
+                        );
+                        // Actualizar hora_llegada_real 
+                        tramo.setHoraLlegadaReal(horaLlegadaReal);
+                        tramo.setEstado(Tramo.EstadoTramo.en_curso);
+
+                        Duration duracionTardanza = Duration.between(tramo.getHoraLlegadaProgramada(), horaLlegadaReal);
+                        long minutosTardanza = duracionTardanza.toMinutes();
+                        int tardanzaValue = (int) (minutosTardanza <= 0 ? 0 : minutosTardanza);
+                        tramo.setTardanzaCita1(tardanzaValue);
+
+                        // Guardar el tramo actualizado // Modificado
+                        tramoRepository.save(tramo); // Modificado
+                    }
+                    if (ordenado == 1 && Objects.equals(alarm.getGeofenceId(), geocercaId) && alarm.getAlarmType().equals("EXIT") && tramo.getHoraLlegadaReal() != null) {
+                        System.out.println(" Entro en condifcion : " + orden + " - De la Geocerca nro: " + geocercaId);
+
+
+                    }
+                    if (ordenado == 2 && Objects.equals(alarm.getGeofenceId(), geocercaId) && alarm.getAlarmType().equals("ENTRY") && tramo.getHoraSalidaReal() == null) {
+                        // Convertir epoch a LocalDateTime
+                        System.out.println(" Entro en condifcion : " + orden + " - De la Geocerca nro: " + geocercaId);
+
+
+                    }
+                    if (ordenado == 2 && Objects.equals(alarm.getGeofenceId(), geocercaId) && alarm.getAlarmType().equals("EXIT")) {
+                        // Convertir epoch a LocalDateTime
+                        System.out.println(" Entro en condifcion : " + orden + " - De la Geocerca nro: " + geocercaId);
+                        LocalDateTime horaSalidaReal = LocalDateTime.ofInstant( // Modificado
+                                Instant.ofEpochSecond(alarm.getExitTime()), // Modificado
+                                ZoneId.systemDefault() // Modificado
+                        ); // Modificado
+
+                        Duration duracionPermanencia = Duration.between(tramo.getHoraLlegadaReal(), horaSalidaReal);
+                        long totalMinutesPermanencia = duracionPermanencia.toMinutes();
+                        tramo.setTiempoPermanenciaCita1((int) totalMinutesPermanencia);
+
+                        Duration duracionAtencionCita = Duration.between(tramo.getHoraSalidaProgramada(), horaSalidaReal);
+                        long minutosduracionAtencionCita = duracionAtencionCita.toMinutes();
+                        int tiempoAtencionCita1;
+
+                        if (tramo.getTardanzaCita1() == 0) {
+                            tiempoAtencionCita1 = (int) minutosduracionAtencionCita;
+                        } else {
+                            tiempoAtencionCita1 = tramo.getTiempoPermanenciaCita1();
+                        }
+                        tramo.setTiempoAtencionCita1(tiempoAtencionCita1);
+
+                        tramoRepository.save(tramo); // Modificado
+
+
+                        SlaPorEstablecimiento slaPorEstablecimiento = new SlaPorEstablecimiento();
+                        slaPorEstablecimiento.setIdEstablecimiento(establecimientoId);
+                        slaPorEstablecimiento.setTiempoAtencionMinutos(tiempoAtencionCita1);
+                        //slaPorEstablecimiento.setIdCliente();
+                        slaPorEstablecimiento.setIdViaje(viajeId);
+                        slaPorEstablecimientoRepo.save(slaPorEstablecimiento);
+
+                        System.out.println("✅ Tramo actualizado - Hora salida real: " + horaSalidaReal); // Modificado
+                        System.out.println(" Entro en condifcion : " + orden + " - De la Geocerca nro: " + geocercaId);
+                    }
+                    if (ordenado == 3 && Objects.equals(alarm.getGeofenceId(), geocercaId) && alarm.getAlarmType().equals("ENTRY")) {
+                        // Convertir epoch a LocalDateTime
+                        System.out.println(" Entro en condifcion : " + orden + " - De la Geocerca nro: " + geocercaId);
+                        Object[] tramoData = results.get(4); // Get the 5th element (index 4)
+                        Tramo tramo2 = tramoRepository.findById((String) tramoData[0]).orElse(null);
+
+                        LocalDateTime horaIngresoReal = LocalDateTime.now(ZoneId.systemDefault());
+
+                        // Actualizar hora_llegada_real
+                        tramo.setHoraSalidaReal(horaIngresoReal);
+
+                        Duration duracionTardanza = Duration.between(tramo2.getHoraLlegadaProgramada(), horaIngresoReal);
+                        long minutosTardanza = duracionTardanza.toMinutes();
+                        int tardanzaValue = (int) (minutosTardanza <= 0 ? 0 : minutosTardanza);
+                        tramo.setTardanzaCita2(tardanzaValue);
+
+                        tramo2.setEstado(Tramo.EstadoTramo.en_curso);
+                        tramoRepository.save(tramo2); // Modificado
+                        // Guardar el tramo actualizado // Modificado
+                        tramoRepository.save(tramo); // Modificado
+                    }
+                    if (ordenado == 3 && Objects.equals(alarm.getGeofenceId(), geocercaId) && alarm.getAlarmType().equals("EXIT")) {
+                        // Convertir epoch a LocalDateTime
+                        System.out.println(" Entro en condifcion : " + orden + " - De la Geocerca nro: " + geocercaId);
+                        LocalDateTime horaSalidaReal = LocalDateTime.now(ZoneId.systemDefault());
+
+                        Duration duracionPermanencia = Duration.between(tramo.getHoraLlegadaReal(), horaSalidaReal);
+                        long totalMinutesPermanencia = duracionPermanencia.toMinutes();
+                        tramo.setTiempoPermanenciaCita2((int) totalMinutesPermanencia);
+
+                        Duration duracionAtencionCita = Duration.between(tramo.getHoraSalidaProgramada(), horaSalidaReal);
+                        long minutosduracionAtencionCita = duracionAtencionCita.toMinutes();
+                        int tiempoAtencionCita2;
+
+                        if (tramo.getTardanzaCita2() == 0) {
+                            tiempoAtencionCita2 = (int) minutosduracionAtencionCita;
+                        } else {
+                            tiempoAtencionCita2 = tramo.getTiempoPermanenciaCita2();
+                        }
+                        tramo.setTiempoAtencionCita2(tiempoAtencionCita2);
+                        tramo.setEstado(Tramo.EstadoTramo.completado);
+                        tramoRepository.save(tramo); // Modificado
+
+                        SlaPorEstablecimiento slaPorEstablecimiento = new SlaPorEstablecimiento();
+                        slaPorEstablecimiento.setIdEstablecimiento(establecimientoId);
+                        slaPorEstablecimiento.setTiempoAtencionMinutos(tiempoAtencionCita2);
+                        //slaPorEstablecimiento.setIdCliente();
+                        slaPorEstablecimiento.setIdViaje(viajeId);
+                        slaPorEstablecimientoRepo.save(slaPorEstablecimiento);
+
+                    }
+                    if (ordenado == 4 && Objects.equals(alarm.getGeofenceId(), geocercaId) && alarm.getAlarmType().equals("ENTRY")) {
+                        // Convertir epoch a LocalDateTime
+                        System.out.println(" Entro en condifcion : " + orden + " - De la Geocerca nro: " + geocercaId);
+
+                    }
+                    if (ordenado == 4 && Objects.equals(alarm.getGeofenceId(), geocercaId) && alarm.getAlarmType().equals("EXIT")) {
+                        // Convertir epoch a LocalDateTime
+                        System.out.println(" Entro en condifcion : " + orden + " - De la Geocerca nro: " + geocercaId);
+
+                    }
+                    if (ordenado == 5 && Objects.equals(alarm.getGeofenceId(), geocercaId) && alarm.getAlarmType().equals("ENTRY")) {
+                        // Convertir epoch a LocalDateTime
+                        System.out.println(" Entro en condifcion : " + orden + " - De la Geocerca nro: " + geocercaId);
+
+                    }
+                    if (ordenado == 5 && Objects.equals(alarm.getGeofenceId(), geocercaId) && alarm.getAlarmType().equals("EXIT")) {
+                        // Convertir epoch a LocalDateTime
+                        System.out.println(" Entro en condifcion : " + orden + " - De la Geocerca nro: " + geocercaId);
+
+                        LocalDateTime horaLlegadaReal = LocalDateTime.ofInstant(
+                                Instant.ofEpochSecond(alarm.getEntryTime()),
+                                ZoneId.systemDefault()
+                        );
+                        // Actualizar hora_llegada_real
+                        tramo.setHoraLlegadaReal(horaLlegadaReal);
+                        tramo.setEstado(Tramo.EstadoTramo.en_curso);
+
+                        Duration duracionTardanza = Duration.between(tramo.getHoraLlegadaProgramada(), horaLlegadaReal);
+                        long minutosTardanza = duracionTardanza.toMinutes();
+                        int tardanzaValue = (int) (minutosTardanza <= 0 ? 0 : minutosTardanza);
+                        tramo.setTardanzaCita2(tardanzaValue);
+                        tramoRepository.save(tramo); // Modificado
+
+                    }
+                    if (ordenado == 6 && Objects.equals(alarm.getGeofenceId(), geocercaId) && alarm.getAlarmType().equals("ENTRY")) {
+                        // Convertir epoch a LocalDateTime
+                        System.out.println(" Entro en condifcion : " + orden + " - De la Geocerca nro: " + geocercaId);
+                        LocalDateTime horaSalidaReal = LocalDateTime.now(ZoneId.systemDefault());
+
+                        Duration duracionPermanencia = Duration.between(tramo.getHoraLlegadaReal(), horaSalidaReal);
+                        long totalMinutesPermanencia = duracionPermanencia.toMinutes();
+                        tramo.setTiempoPermanenciaCita2((int) totalMinutesPermanencia);
+
+                        Duration duracionAtencionCita = Duration.between(tramo.getHoraSalidaProgramada(), horaSalidaReal);
+                        long minutosduracionAtencionCita = duracionAtencionCita.toMinutes();
+                        int tiempoAtencionCita2;
+
+                        if (tramo.getTardanzaCita2() == 0) {
+                            tiempoAtencionCita2 = (int) minutosduracionAtencionCita;
+                        } else {
+                            tiempoAtencionCita2 = tramo.getTiempoPermanenciaCita2();
+                        }
+                        tramo.setTiempoAtencionCita2(tiempoAtencionCita2);
+                        tramo.setEstado(Tramo.EstadoTramo.completado);
+                        tramoRepository.save(tramo); // Modificado
+
+                        SlaPorEstablecimiento slaPorEstablecimiento = new SlaPorEstablecimiento();
+                        slaPorEstablecimiento.setIdEstablecimiento(establecimientoId);
+                        slaPorEstablecimiento.setTiempoAtencionMinutos(tiempoAtencionCita2);
+                        //slaPorEstablecimiento.setIdCliente();
+                        slaPorEstablecimiento.setIdViaje(viajeId);
+                        slaPorEstablecimientoRepo.save(slaPorEstablecimiento);
+                    }
+                    if (ordenado == 6 && Objects.equals(alarm.getGeofenceId(), geocercaId) && alarm.getAlarmType().equals("EXIT")) {
+                        System.out.println(" Entro en condifcion : " + orden + " - De la Geocerca nro: " + geocercaId);
+                    }
+                }
+            } else {
+                System.out.println("⚠️ No se encontró tramo pendiente para IMEI " + alarm.getImei() + " y geocerca " + alarm.getGeofenceId());
+            }
+
+        } catch (Exception e) {
+            System.err.println("❌ Error en evaluación de cita: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    private void saveDuplicateAlarm(Alarm alarm, String errorMessage) {
+        DuplicateAlarm duplicateAlarm = new DuplicateAlarm();
+        duplicateAlarm.setImei(truncateString(alarm.getImei(), 15));
+        duplicateAlarm.setGeofenceId(alarm.getGeofenceId());
+        duplicateAlarm.setAlarmType(truncateString(alarm.getAlarmType(), 50));
+        duplicateAlarm.setDeviceName(truncateString(alarm.getDeviceName(), 255));
+        duplicateAlarm.setPlateNumber(truncateString(alarm.getPlateNumber(), 50));
+        duplicateAlarm.setTrackTime(alarm.getTrackTime());
+        duplicateAlarm.setLatitude(alarm.getLatitude());
+        duplicateAlarm.setLongitude(alarm.getLongitude());
+        duplicateAlarm.setEntryTime(alarm.getEntryTime());
+        duplicateAlarm.setExitTime(alarm.getExitTime());
+        duplicateAlarm.setDuration(alarm.getDuration());
+        duplicateAlarm.setErrorDescription(truncateString(errorMessage, 255));
+
+        try {
+            System.out.println("📝 Saving to duplicate_alarms: imei=" + duplicateAlarm.getImei() +
+                    ", geofence_id=" + duplicateAlarm.getGeofenceId() +
+                    ", alarm_type=" + duplicateAlarm.getAlarmType());
+            duplicateAlarmRepository.save(duplicateAlarm);
+        } catch (Throwable ex) {
+            System.err.println("❌ Error saving to duplicate_alarms for IMEI " + alarm.getImei() + " and geofence " + alarm.getGeofenceId() + ": " + ex.getMessage());
+            ex.printStackTrace();
+        }
+    }
 
     @Override
     public List<Alarm> getAlarms() {

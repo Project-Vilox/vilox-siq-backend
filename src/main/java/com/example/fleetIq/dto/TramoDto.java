@@ -25,10 +25,10 @@ public class TramoDto {
     private String tracto;
     private String chasis;
     private String conductor;
-    private LocalDateTime tardanzaCita1;
-    private LocalDateTime tiempoPermanenciaCita1;
-    private LocalDateTime tiempoAtencionCita1;
-    private LocalDateTime tardanzaCita2;
-    private LocalDateTime tiempoPermanenciaCita2;
-    private LocalDateTime tiempoAtencionCita2;
+    private Integer tardanzaCita1;
+    private Integer tiempoPermanenciaCita1;
+    private Integer tiempoAtencionCita1;
+    private Integer tardanzaCita2;
+    private Integer tiempoPermanenciaCita2;
+    private Integer tiempoAtencionCita2;
 }
