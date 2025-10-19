@@ -23,11 +23,6 @@ public class ViajeController {
     private static final Logger logger = LoggerFactory.getLogger(ViajeController.class);
     private final ViajeService viajeService;
 
-    @GetMapping("/health")
-    public ResponseEntity<String> healthCheck() {
-        return ResponseEntity.ok("Service is healthy at " + LocalDateTime.now());
-    }
-
     @PostMapping
     public ResponseEntity<Map<String, String>> guardarViaje(@RequestBody Viaje viaje) {
         try {
