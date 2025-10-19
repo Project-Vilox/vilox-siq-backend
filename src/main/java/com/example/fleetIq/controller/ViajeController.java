@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -21,6 +22,11 @@ public class ViajeController {
 
     private static final Logger logger = LoggerFactory.getLogger(ViajeController.class);
     private final ViajeService viajeService;
+
+    @GetMapping("/health")
+    public ResponseEntity<String> healthCheck() {
+        return ResponseEntity.ok("Service is healthy at " + LocalDateTime.now());
+    }
 
     @PostMapping
     public ResponseEntity<Map<String, String>> guardarViaje(@RequestBody Viaje viaje) {
