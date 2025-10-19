@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @RestController
@@ -16,6 +17,11 @@ public class TramoController {
 
     @Autowired
     private TramoService tramoService;
+
+    @GetMapping("/health")
+    public ResponseEntity<String> healthCheck() {
+        return ResponseEntity.ok("Service is healthy at " + LocalDateTime.now());
+    }
 
     @GetMapping("/viaje/{viajeId}")
     public ResponseEntity<List<TramoDto>> listarTramosPorViaje(@PathVariable String viajeId) {
