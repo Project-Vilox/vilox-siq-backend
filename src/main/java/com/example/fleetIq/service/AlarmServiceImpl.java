@@ -416,6 +416,62 @@ public class AlarmServiceImpl implements AlarmService {
                     if (ordenado == 6 && Objects.equals(alarm.getGeofenceId(), geocercaId) && alarm.getAlarmType().equals("EXIT")) {
                         System.out.println(" Entro en condifcion : " + orden + " - De la Geocerca nro: " + geocercaId);
                     }
+                    if (ordenado == 7 && Objects.equals(alarm.getGeofenceId(), geocercaId) && alarm.getAlarmType().equals("ENTRY")) {
+                        // Convertir epoch a LocalDateTime
+                        System.out.println(" Entro en condifcion : " + orden + " - De la Geocerca nro: " + geocercaId);
+
+                    }
+                    if (ordenado == 7 && Objects.equals(alarm.getGeofenceId(), geocercaId) && alarm.getAlarmType().equals("EXIT")) {
+                        // Convertir epoch a LocalDateTime
+                        System.out.println(" Entro en condifcion : " + orden + " - De la Geocerca nro: " + geocercaId);
+
+                        LocalDateTime horaLlegadaReal = LocalDateTime.ofInstant(
+                                Instant.ofEpochSecond(alarm.getEntryTime()),
+                                ZoneId.systemDefault()
+                        );
+                        // Actualizar hora_llegada_real
+                        tramo.setHoraLlegadaReal(horaLlegadaReal);
+                        tramo.setEstado(Tramo.EstadoTramo.en_curso);
+
+                        Duration duracionTardanza = Duration.between(tramo.getHoraLlegadaProgramada(), horaLlegadaReal);
+                        long minutosTardanza = duracionTardanza.toMinutes();
+                        int tardanzaValue = (int) (minutosTardanza <= 0 ? 0 : minutosTardanza);
+                        tramo.setTardanzaCita2(tardanzaValue);
+                        tramoRepository.save(tramo); // Modificado
+
+                    }
+                    if (ordenado == 8 && Objects.equals(alarm.getGeofenceId(), geocercaId) && alarm.getAlarmType().equals("ENTRY")) {
+                        // Convertir epoch a LocalDateTime
+                        System.out.println(" Entro en condifcion : " + orden + " - De la Geocerca nro: " + geocercaId);
+                        LocalDateTime horaSalidaReal = LocalDateTime.now(ZoneId.systemDefault());
+
+                        Duration duracionPermanencia = Duration.between(tramo.getHoraLlegadaReal(), horaSalidaReal);
+                        long totalMinutesPermanencia = duracionPermanencia.toMinutes();
+                        tramo.setTiempoPermanenciaCita2((int) totalMinutesPermanencia);
+
+                        Duration duracionAtencionCita = Duration.between(tramo.getHoraSalidaProgramada(), horaSalidaReal);
+                        long minutosduracionAtencionCita = duracionAtencionCita.toMinutes();
+                        int tiempoAtencionCita2;
+
+                        if (tramo.getTardanzaCita2() == 0) {
+                            tiempoAtencionCita2 = (int) minutosduracionAtencionCita;
+                        } else {
+                            tiempoAtencionCita2 = tramo.getTiempoPermanenciaCita2();
+                        }
+                        tramo.setTiempoAtencionCita2(tiempoAtencionCita2);
+                        tramo.setEstado(Tramo.EstadoTramo.completado);
+                        tramoRepository.save(tramo); // Modificado
+
+                        SlaPorEstablecimiento slaPorEstablecimiento = new SlaPorEstablecimiento();
+                        slaPorEstablecimiento.setIdEstablecimiento(establecimientoId);
+                        slaPorEstablecimiento.setTiempoAtencionMinutos(tiempoAtencionCita2);
+                        //slaPorEstablecimiento.setIdCliente();
+                        slaPorEstablecimiento.setIdViaje(viajeId);
+                        slaPorEstablecimientoRepo.save(slaPorEstablecimiento);
+                    }
+                    if (ordenado == 8 && Objects.equals(alarm.getGeofenceId(), geocercaId) && alarm.getAlarmType().equals("EXIT")) {
+                        System.out.println(" Entro en condifcion : " + orden + " - De la Geocerca nro: " + geocercaId);
+                    }
                 }
             } else {
                 System.out.println("⚠️ No se encontró tramo pendiente para IMEI " + alarm.getImei() + " y geocerca " + alarm.getGeofenceId());
