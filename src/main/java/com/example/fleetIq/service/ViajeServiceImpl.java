@@ -1,6 +1,7 @@
 package com.example.fleetIq.service;
 
 import com.example.fleetIq.dto.ViajeDto;
+import com.example.fleetIq.dto.ViajeResumenDto;
 import com.example.fleetIq.model.Establecimiento;
 import com.example.fleetIq.model.Track;
 import com.example.fleetIq.model.Tramo;
@@ -68,6 +69,14 @@ public class ViajeServiceImpl implements ViajeService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public ViajeDto obtenerViajePorId(String id) {
+        return viajeRepository.findById(id) // 1. Busca la entidad Viaje completa (el DTO pesado)
+                .map(this::convertToDto) // 2. Mapea la entidad Viaje al ViajeDto
+                .orElse(null); // 3. Retorna null si no se encuentra
+    }
+
+    @Override
     public List<ViajeDto> listarViajesPorCodigo(String codigoViaje) {
         return viajeRepository.findByCodigoViaje(codigoViaje).stream()
                 .map(this::convertToDto)
@@ -80,6 +89,16 @@ public class ViajeServiceImpl implements ViajeService {
         return viajeRepository.findByEmpresaTransportistaId(empresaId).stream()
                 .map(this::convertToDto)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    // NOTA: El retorno ya no es List<ViajeDto>, sino List<ViajeResumenDto>
+    public List<ViajeResumenDto> listarViajesResumenPorEmpresa(String empresaId) {
+        // LLAMA DIRECTAMENTE AL REPOSITORIO
+        // Esto es muy rápido y NO ejecuta ninguna lógica de negocio lenta ni mapeo
+        // pesado.
+        return viajeRepository.findViajesResumenByEmpresaTransportistaId(empresaId);
     }
 
     @Override
@@ -131,7 +150,8 @@ public class ViajeServiceImpl implements ViajeService {
             empresaTransportistaDto.setTelefono(viaje.getEmpresaTransportista().getTelefono());
             empresaTransportistaDto.setEmail(viaje.getEmpresaTransportista().getEmail());
             empresaTransportistaDto.setConfiguracionAlertas(viaje.getEmpresaTransportista().getConfiguracionAlertas());
-            empresaTransportistaDto.setConfiguracionDashboard(viaje.getEmpresaTransportista().getConfiguracionDashboard());
+            empresaTransportistaDto
+                    .setConfiguracionDashboard(viaje.getEmpresaTransportista().getConfiguracionDashboard());
             empresaTransportistaDto.setActivo(viaje.getEmpresaTransportista().getActivo());
             empresaTransportistaDto.setFechaCreacion(viaje.getEmpresaTransportista().getFechaCreacion());
             empresaTransportistaDto.setFechaActualizacion(viaje.getEmpresaTransportista().getFechaActualizacion());
@@ -196,7 +216,8 @@ public class ViajeServiceImpl implements ViajeService {
         if (viaje.getVehiculo() != null) {
             ViajeDto.VehiculoDto vehiculoDto = new ViajeDto.VehiculoDto();
             vehiculoDto.setId(viaje.getVehiculo().getId());
-            vehiculoDto.setEmpresaId(viaje.getVehiculo().getEmpresa() != null ? viaje.getVehiculo().getEmpresa().getId() : null);
+            vehiculoDto.setEmpresaId(
+                    viaje.getVehiculo().getEmpresa() != null ? viaje.getVehiculo().getEmpresa().getId() : null);
             vehiculoDto.setPlaca(viaje.getVehiculo().getPlaca());
             vehiculoDto.setImei(viaje.getVehiculo().getImei());
             vehiculoDto.setMarca(viaje.getVehiculo().getMarca());
@@ -214,7 +235,8 @@ public class ViajeServiceImpl implements ViajeService {
         if (viaje.getCarreta() != null) {
             ViajeDto.CarretaDto carretaDto = new ViajeDto.CarretaDto();
             carretaDto.setId(viaje.getCarreta().getId());
-            carretaDto.setEmpresaId(viaje.getCarreta().getEmpresa() != null ? viaje.getCarreta().getEmpresa().getId() : null);
+            carretaDto.setEmpresaId(
+                    viaje.getCarreta().getEmpresa() != null ? viaje.getCarreta().getEmpresa().getId() : null);
             carretaDto.setPlaca(viaje.getCarreta().getPlaca());
             carretaDto.setImei(viaje.getCarreta().getImei());
             carretaDto.setMarca(viaje.getCarreta().getMarca());
@@ -244,10 +266,17 @@ public class ViajeServiceImpl implements ViajeService {
             conductorDto.setFechaCreacion(viaje.getConductor().getFechaCreacion());
 
             Hibernate.initialize(viaje.getConductor().getConductorEmpresas());
-            if (viaje.getConductor().getConductorEmpresas() != null && !viaje.getConductor().getConductorEmpresas().isEmpty()) {
-                conductorDto.setEmpresaId(viaje.getConductor().getConductorEmpresas().get(0).getEmpresa() != null ? viaje.getConductor().getConductorEmpresas().get(0).getEmpresa().getId() : null);
-                conductorDto.setFechaInicio(viaje.getConductor().getConductorEmpresas().get(0).getFechaInicio() != null ? viaje.getConductor().getConductorEmpresas().get(0).getFechaInicio().atStartOfDay() : null);
-                conductorDto.setFechaFin(viaje.getConductor().getConductorEmpresas().get(0).getFechaFin() != null ? viaje.getConductor().getConductorEmpresas().get(0).getFechaFin().atStartOfDay() : null);
+            if (viaje.getConductor().getConductorEmpresas() != null
+                    && !viaje.getConductor().getConductorEmpresas().isEmpty()) {
+                conductorDto.setEmpresaId(viaje.getConductor().getConductorEmpresas().get(0).getEmpresa() != null
+                        ? viaje.getConductor().getConductorEmpresas().get(0).getEmpresa().getId()
+                        : null);
+                conductorDto.setFechaInicio(viaje.getConductor().getConductorEmpresas().get(0).getFechaInicio() != null
+                        ? viaje.getConductor().getConductorEmpresas().get(0).getFechaInicio().atStartOfDay()
+                        : null);
+                conductorDto.setFechaFin(viaje.getConductor().getConductorEmpresas().get(0).getFechaFin() != null
+                        ? viaje.getConductor().getConductorEmpresas().get(0).getFechaFin().atStartOfDay()
+                        : null);
             }
             dto.setConductor(conductorDto);
         }
@@ -272,7 +301,8 @@ public class ViajeServiceImpl implements ViajeService {
                     establecimientoOrigenDto.setLongitud(tramo.getEstablecimientoOrigen().getLongitud());
                     establecimientoOrigenDto.setPublico(tramo.getEstablecimientoOrigen().getPublico());
                     establecimientoOrigenDto.setActivo(tramo.getEstablecimientoOrigen().getActivo());
-                    establecimientoOrigenDto.setConfiguracionSla(tramo.getEstablecimientoOrigen().getConfiguracionSla());
+                    establecimientoOrigenDto
+                            .setConfiguracionSla(tramo.getEstablecimientoOrigen().getConfiguracionSla());
                     establecimientoOrigenDto.setFechaCreacion(tramo.getEstablecimientoOrigen().getFechaCreacion());
                     tramoDto.setEstablecimientoOrigen(establecimientoOrigenDto);
                 }
@@ -289,7 +319,8 @@ public class ViajeServiceImpl implements ViajeService {
                     establecimientoDestinoDto.setLongitud(tramo.getEstablecimientoDestino().getLongitud());
                     establecimientoDestinoDto.setPublico(tramo.getEstablecimientoDestino().getPublico());
                     establecimientoDestinoDto.setActivo(tramo.getEstablecimientoDestino().getActivo());
-                    establecimientoDestinoDto.setConfiguracionSla(tramo.getEstablecimientoDestino().getConfiguracionSla());
+                    establecimientoDestinoDto
+                            .setConfiguracionSla(tramo.getEstablecimientoDestino().getConfiguracionSla());
                     establecimientoDestinoDto.setFechaCreacion(tramo.getEstablecimientoDestino().getFechaCreacion());
                     tramoDto.setEstablecimientoDestino(establecimientoDestinoDto);
                 }
@@ -300,10 +331,17 @@ public class ViajeServiceImpl implements ViajeService {
                 tramoDto.setHoraSalidaProgramada(tramo.getHoraSalidaProgramada());
                 tramoDto.setHoraLlegadaReal(tramo.getHoraLlegadaReal());
                 tramoDto.setHoraSalidaReal(tramo.getHoraSalidaReal());
+                tramoDto.setHoraLlegadaRealDestino(tramo.getHoraLlegadaRealDestino());
+                tramoDto.setHoraSalidaRealDestino(tramo.getHoraSalidaRealDestino());
                 tramoDto.setEstado(tramo.getEstado() != null ? tramo.getEstado().name() : null);
                 tramoDto.setSlaMinutos(tramo.getSlaMinutos());
                 tramoDto.setObservaciones(tramo.getObservaciones());
-
+                tramoDto.setTardanzaCita1(tramo.getTardanzaCita1());
+                tramoDto.setTiempoPermanenciaCita1(tramo.getTiempoPermanenciaCita1());
+                tramoDto.setTiempoAtencionCita1(tramo.getTiempoAtencionCita1());
+                tramoDto.setTardanzaCita2(tramo.getTardanzaCita2());
+                tramoDto.setTiempoPermanenciaCita2(tramo.getTiempoPermanenciaCita2());
+                tramoDto.setTiempoAtencionCita2(tramo.getTiempoAtencionCita2());
                 // Calcular ETA y Avance
                 calcularEtaYAvance(tramo, tramoDto);
 
@@ -344,16 +382,14 @@ public class ViajeServiceImpl implements ViajeService {
                         trackActual.getLatitude(),
                         trackActual.getLongitude(),
                         destino.getLatitud().doubleValue(),
-                        destino.getLongitud().doubleValue()
-                );
+                        destino.getLongitud().doubleValue());
             } catch (Exception e) {
                 System.err.println("Falling back to OSRM due to Google Maps error: " + e.getMessage());
                 resultadoActualDestino = obtenerDuracionYDistancia(
                         trackActual.getLatitude(),
                         trackActual.getLongitude(),
                         destino.getLatitud().doubleValue(),
-                        destino.getLongitud().doubleValue()
-                );
+                        destino.getLongitud().doubleValue());
             }
 
             // 3. Calcular ETA = hora actual + tiempo estimado de llegada
@@ -367,23 +403,21 @@ public class ViajeServiceImpl implements ViajeService {
                 dto.setAvance("0.0");
                 return;
             }
-
+            // BUSCAR POR CENTRO DE POLIGONO
             DuracionDistanciaResult resultadoTotal;
             try {
                 resultadoTotal = obtenerDuracionYDistanciaGmaps(
                         origen.getLatitud().doubleValue(),
                         origen.getLongitud().doubleValue(),
                         destino.getLatitud().doubleValue(),
-                        destino.getLongitud().doubleValue()
-                );
+                        destino.getLongitud().doubleValue());
             } catch (Exception e) {
                 System.err.println("Falling back to OSRM due to Google Maps error: " + e.getMessage());
                 resultadoTotal = obtenerDuracionYDistancia(
                         origen.getLatitud().doubleValue(),
                         origen.getLongitud().doubleValue(),
                         destino.getLatitud().doubleValue(),
-                        destino.getLongitud().doubleValue()
-                );
+                        destino.getLongitud().doubleValue());
             }
 
             // 5. Calcular distancia recorrida
@@ -414,7 +448,8 @@ public class ViajeServiceImpl implements ViajeService {
         try {
             String coordenadasOrigen = String.format(Locale.US, "%.6f,%.6f", origenLon, origenLat);
             String coordenadasDestino = String.format(Locale.US, "%.6f,%.6f", destinoLon, destinoLat);
-            String url = "https://router.project-osrm.org/route/v1/driving/" + coordenadasOrigen + ";" + coordenadasDestino + "?overview=false";
+            String url = "https://router.project-osrm.org/route/v1/driving/" + coordenadasOrigen + ";"
+                    + coordenadasDestino + "?overview=false";
 
             HttpClient client = HttpClient.newHttpClient();
             HttpRequest request = HttpRequest.newBuilder()
@@ -459,7 +494,8 @@ public class ViajeServiceImpl implements ViajeService {
             route.put("travelMode", "DRIVE");
             requestBody.put(route);
 
-            String url = "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix?fields=distanceMeters,duration&key=" + googleMapsApiKey;
+            String url = "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix?fields=distanceMeters,duration&key="
+                    + googleMapsApiKey;
 
             HttpClient client = HttpClient.newHttpClient();
             HttpRequest request = HttpRequest.newBuilder()

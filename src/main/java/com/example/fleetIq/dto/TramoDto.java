@@ -1,7 +1,6 @@
 package com.example.fleetIq.dto;
 
 import lombok.Data;
-
 import java.time.LocalDateTime;
 
 @Data
@@ -17,11 +16,13 @@ public class TramoDto {
     private LocalDateTime horaSalidaProgramada;
     private LocalDateTime horaLlegadaReal;
     private LocalDateTime horaSalidaReal;
+    private LocalDateTime horaLlegadaRealDestino;
+    private LocalDateTime horaSalidaRealDestino;
     private String estado;
     private Integer slaMinutos;
     private String observaciones;
     private String eta;
-    private double avance;
+    private Double avance;
     private String tracto;
     private String chasis;
     private String conductor;
