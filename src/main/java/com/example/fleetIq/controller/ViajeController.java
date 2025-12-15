@@ -1,6 +1,7 @@
 package com.example.fleetIq.controller;
 
 import com.example.fleetIq.dto.ViajeDto;
+import com.example.fleetIq.dto.ViajeResumenDto;
 import com.example.fleetIq.model.Viaje;
 import com.example.fleetIq.service.ViajeService;
 import lombok.RequiredArgsConstructor;
@@ -64,6 +65,32 @@ public class ViajeController {
         }
     }
 
+    // ⭐ NUEVO ENDPOINT PARA CARGAR EL DETALLE COMPLETO DE UN SOLO VIAJE POR SU ID
+    @GetMapping("/{viajeId}")
+    public ResponseEntity<?> obtenerViajeCompleto(@PathVariable String viajeId) {
+        try {
+            logger.info("⏳ Buscando detalles completos del viaje con ID: {}", viajeId);
+
+            // Debes implementar este nuevo método en ViajeService:
+            // ViajeDto obtenerViajePorId(String id);
+            ViajeDto viajeCompleto = viajeService.obtenerViajePorId(viajeId);
+
+            if (viajeCompleto == null) {
+                logger.warn("Viaje no encontrado con ID: {}", viajeId);
+                return ResponseEntity.notFound().build();
+            }
+
+            logger.info("✅ Detalles completos del viaje {} cargados.", viajeId);
+            return ResponseEntity.ok(viajeCompleto);
+        } catch (Exception e) {
+            logger.error("❌ Error al buscar detalles del viaje {}: {}", viajeId, e.getMessage(), e);
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Error al buscar detalles del viaje",
+                    "viajeId", viajeId,
+                    "message", e.getMessage()));
+        }
+    }
+
     @GetMapping("/empresa/{empresaId}")
     public ResponseEntity<?> listarViajesPorEmpresa(@PathVariable String empresaId) {
         try {
@@ -74,10 +101,9 @@ public class ViajeController {
         } catch (Exception e) {
             logger.error("❌ Error al buscar viajes para empresa {}: {}", empresaId, e.getMessage(), e);
             return ResponseEntity.badRequest().body(Map.of(
-                "error", "Error al buscar viajes para empresa",
-                "empresaId", empresaId,
-                "message", e.getMessage()
-            ));
+                    "error", "Error al buscar viajes para empresa",
+                    "empresaId", empresaId,
+                    "message", e.getMessage()));
         }
     }
 
@@ -101,7 +127,7 @@ public class ViajeController {
         }
     }
 
-    @GetMapping("/{operadorId}")
+    @GetMapping("/por-operador/{operadorId}")
     public ResponseEntity<List<ViajeDto>> listarViajes(@PathVariable String operadorId) {
         try {
             List<ViajeDto> viajes = viajeService.listarViajesId(operadorId);
@@ -110,4 +136,22 @@ public class ViajeController {
             return ResponseEntity.badRequest().build();
         }
     }
+
+    @GetMapping("/lite/empresa/{empresaId}")
+    public ResponseEntity<?> listarViajesPorEmpresaLite(@PathVariable String empresaId) {
+        try {
+            logger.info("⚡ Buscando viajes (LIGEROS) para empresa: {}", empresaId);
+            // NOTA: Debes implementar listarViajesPorEmpresaLite en ViajeService
+            List<ViajeResumenDto> viajesLite = viajeService.listarViajesResumenPorEmpresa(empresaId);
+            logger.info("✅ Encontrados {} viajes LIGEROS para empresa {}", viajesLite.size(), empresaId);
+            return ResponseEntity.ok(viajesLite);
+        } catch (Exception e) {
+            logger.error("❌ Error al buscar viajes (LIGEROS) para empresa {}: {}", empresaId, e.getMessage(), e);
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Error al buscar viajes ligeros para empresa",
+                    "empresaId", empresaId,
+                    "message", e.getMessage()));
+        }
+    }
+
 }

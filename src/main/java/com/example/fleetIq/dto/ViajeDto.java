@@ -33,7 +33,6 @@ public class ViajeDto {
     private LocalDateTime fechaActualizacion;
     private List<TramoDto> tramos; // Relación existente
 
-
     @Data
     public static class EmpresaDto {
         private String id;
@@ -114,12 +113,19 @@ public class ViajeDto {
         private LocalDateTime horaSalidaProgramada;
         private LocalDateTime horaLlegadaReal;
         private LocalDateTime horaSalidaReal;
+        private LocalDateTime horaLlegadaRealDestino;
+        private LocalDateTime horaSalidaRealDestino;
         private String estado;
         private Integer slaMinutos;
         private String observaciones;
         private String eta;
         private String avance;
-
+        private Integer tardanzaCita1;
+        private Integer tiempoPermanenciaCita1;
+        private Integer tiempoAtencionCita1;
+        private Integer tardanzaCita2;
+        private Integer tiempoPermanenciaCita2;
+        private Integer tiempoAtencionCita2;
 
     }
 

@@ -59,7 +59,8 @@ public class TrackServiceImpl implements TrackService {
 
         StringBuilder imeis = new StringBuilder();
         for (Device device : devices) {
-            if (imeis.length() > 0) imeis.append(",");
+            if (imeis.length() > 0)
+                imeis.append(",");
             imeis.append(device.getImei());
         }
 
@@ -69,7 +70,9 @@ public class TrackServiceImpl implements TrackService {
         int savedTracksCount = fetchAndSaveForImeis(imeis.toString(), beginTime, endTime, accessToken);
 
         // Log en consola con la cantidad de registros guardados
-        logger.info("🚪 Se termina proceso automático de extracción GPS Tracks desde api protrack365. Registros guardados en la tabla tracks: {}", savedTracksCount);
+        logger.info(
+                "🚪 Se termina proceso automático de extracción GPS Tracks desde api protrack365. Registros guardados en la tabla tracks: {}",
+                savedTracksCount);
     }
 
     @Scheduled(fixedRate = 30000)
@@ -80,7 +83,8 @@ public class TrackServiceImpl implements TrackService {
             LocalDateTime fechaHoraActual = LocalDateTime.now();
             DateTimeFormatter formato = DateTimeFormatter.ofPattern("dd-MM-yy HH:mm:ss");
             String fechaHoraFormateada = fechaHoraActual.format(formato);
-            logger.info("✅ Se inicia proceso automático de extracción GPS Tracks desde api protrack365 ::: {}", fechaHoraFormateada);
+            logger.info("✅ Se inicia proceso automático de extracción GPS Tracks desde api protrack365 ::: {}",
+                    fechaHoraFormateada);
             fetchAndSaveTracks(beginTime, endTime);
         } catch (Exception e) {
             logger.error("❌ Error en el proceso programado de extracción de tracks: {}", e.getMessage(), e);
@@ -89,8 +93,10 @@ public class TrackServiceImpl implements TrackService {
 
     @Override
     public List<Track> getTracksByImei(String imei, Long beginTime, Long endTime) {
-        if (beginTime == null) beginTime = 0L;
-        if (endTime == null) endTime = System.currentTimeMillis() / 1000;
+        if (beginTime == null)
+            beginTime = 0L;
+        if (endTime == null)
+            endTime = System.currentTimeMillis() / 1000;
         return trackRepository.findByImeiAndTimeBetween(imei, beginTime, endTime);
     }
 
@@ -116,7 +122,9 @@ public class TrackServiceImpl implements TrackService {
 
         while (hasMore) {
             try {
-                URL url = new URL("https://api.protrack365.com/api/track?access_token=" + accessToken + "&imeis=" + imeis + "&begin_time=" + beginTime + "&end_time=" + endTime + "&page=" + page + "&pagesize=" + pagesize);
+                URL url = new URL("https://api.protrack365.com/api/track?access_token=" + accessToken + "&imeis="
+                        + imeis + "&begin_time=" + beginTime + "&end_time=" + endTime + "&page=" + page + "&pagesize="
+                        + pagesize);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("GET");
                 conn.setConnectTimeout(10000);
@@ -126,13 +134,15 @@ public class TrackServiceImpl implements TrackService {
                     BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
                     StringBuilder response = new StringBuilder();
                     String line;
-                    while ((line = br.readLine()) != null) response.append(line);
+                    while ((line = br.readLine()) != null)
+                        response.append(line);
                     br.close();
 
                     JSONObject json = new JSONObject(response.toString());
                     if (json.getInt("code") == 0) {
                         JSONArray records = json.getJSONArray("record");
-                        if (records.length() < pagesize) hasMore = false;
+                        if (records.length() < pagesize)
+                            hasMore = false;
 
                         for (int i = 0; i < records.length(); i++) {
                             JSONObject record = records.getJSONObject(i);
@@ -162,7 +172,9 @@ public class TrackServiceImpl implements TrackService {
                             track.setTemperature(record.optString("temperature", "[]"));
                             track.setTemperaturetime(record.optLong("temperaturetime", 0L));
 
-                            if (trackRepository.findByImeiAndTimeBetween(track.getImei(), track.getGpstime(), track.getGpstime()).isEmpty()) {
+                            if (trackRepository
+                                    .findByImeiAndTimeBetween(track.getImei(), track.getGpstime(), track.getGpstime())
+                                    .isEmpty()) {
                                 trackRepository.save(track);
                                 savedTracksCount++;
                             }
@@ -172,7 +184,8 @@ public class TrackServiceImpl implements TrackService {
                     } else {
                         String errorMessage = json.getString("message");
                         if (errorMessage.contains("access_token is invalid") && retryCount < maxRetries) {
-                            logger.warn("⚠️ Token inválido, renovando token... Intento {}/{}", retryCount + 1, maxRetries);
+                            logger.warn("⚠️ Token inválido, renovando token... Intento {}/{}", retryCount + 1,
+                                    maxRetries);
                             // Forzar renovación del token
                             tokenCache.renewToken();
                             accessToken = tokenCache.getAccessToken();

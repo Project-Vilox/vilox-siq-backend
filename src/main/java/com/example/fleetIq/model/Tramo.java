@@ -1,14 +1,15 @@
 package com.example.fleetIq.model;
 
+import com.example.fleetIq.listener.TramoEntityListener;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
 import lombok.Data;
-
 import java.time.LocalDateTime;
 
 @Data
 @Entity
 @Table(name = "tramos")
+@EntityListeners(TramoEntityListener.class) // ⭐ AGREGAR ESTA LÍNEA
 public class Tramo {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -44,11 +45,19 @@ public class Tramo {
     @Column(name = "hora_salida_programada")
     private LocalDateTime horaSalidaProgramada;
 
+    // ⏱️ HORAS REALES DEL ORIGEN
     @Column(name = "hora_llegada_real")
     private LocalDateTime horaLlegadaReal;
 
     @Column(name = "hora_salida_real")
     private LocalDateTime horaSalidaReal;
+
+    // ⏱️ HORAS REALES DEL DESTINO (NUEVOS CAMPOS)
+    @Column(name = "hora_llegada_real_destino")
+    private LocalDateTime horaLlegadaRealDestino;
+
+    @Column(name = "hora_salida_real_destino")
+    private LocalDateTime horaSalidaRealDestino;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "estado", nullable = false)

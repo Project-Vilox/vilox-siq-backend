@@ -2,6 +2,8 @@ package com.example.fleetIq.service;
 
 import com.example.fleetIq.model.Viaje;
 import com.example.fleetIq.dto.ViajeDto;
+import com.example.fleetIq.dto.ViajeResumenDto;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -24,4 +26,9 @@ public interface ViajeService {
     List<ViajeDto> listarViajesPorCliente(String clienteId);
 
     List<ViajeDto> listarViajesId(String operadorId);
+
+    ViajeDto obtenerViajePorId(String id);
+
+    // NUEVO MÉTODO LIGERO: Devuelve el DTO, pero sin la data pesada.
+    List<ViajeResumenDto> listarViajesResumenPorEmpresa(String empresaId);
 }
