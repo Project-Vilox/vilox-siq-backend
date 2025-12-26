@@ -13,6 +13,7 @@ import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
@@ -21,108 +22,64 @@ import java.util.Optional;
 public class ViajeEventHandler {
 
     private final ViajeRepository viajeRepository;
+    private final ViajeReporteService viajeReporteService;
 
-    // ⭐ La clave: REQUIRES_NEW asegura que este método se ejecute en una
-    // transacción separada.
-    // Esto lo aísla del error de concurrencia del commit anterior.
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT) // ⭐ CAMBIO CLAVE
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void handleViajeUpdateEvent(ViajeUpdateEvent event) {
         String viajeId = event.getViajeId();
-        System.out.println("👂 Handler: Recibido evento para actualizar Viaje ID: " + viajeId);
 
         try {
-            Optional<Viaje> viajeOpt = viajeRepository.findByIdWithTramos(viajeId); // <--- ¡CORREGIDO!
-
-            if (viajeOpt.isEmpty()) {
-                System.err.println("⚠️ Handler: Viaje no encontrado para ID: " + viajeId);
+            Optional<Viaje> viajeOpt = viajeRepository.findByIdWithTramos(viajeId);
+            if (viajeOpt.isEmpty())
                 return;
-            }
 
             Viaje viaje = viajeOpt.get();
-
-            // Re-obtener los tramos para recalcular el estado
-            // Necesitamos asegurarnos que la lista de tramos esté inicializada y
-            // actualizada
             List<Tramo> tramos = viaje.getTramos();
-            if (tramos == null || tramos.isEmpty()) {
-                // Esto no debería suceder si el tramo existe, pero es una buena práctica.
-                return;
-            }
-            tramos.sort((a, b) -> Integer.compare(a.getOrden(), b.getOrden()));
+            tramos.sort(Comparator.comparingInt(Tramo::getOrden));
 
-            // Recalcular estado (Lógica copiada del Listener)
             String nuevoEstado = calcularEstadoViaje(tramos);
-            String estadoActual = viaje.getEstado();
+            String estadoAnterior = viaje.getEstado();
 
-            boolean viajeActualizado = false;
-
-            // 1. Actualizar estado
-            if (!nuevoEstado.equals(estadoActual)) {
+            // 1. Cambiar estado del viaje
+            if (!nuevoEstado.equals(estadoAnterior)) {
                 viaje.setEstado(nuevoEstado);
-                viajeActualizado = true;
-                System.out.println("✅ Handler: Estado del viaje actualizado a: " + nuevoEstado);
-            }
 
-            // 2. Actualizar fecha inicio real
-            Tramo primerTramo = tramos.get(0);
-            if (viaje.getFechaInicioReal() == null && primerTramo.getHoraLlegadaReal() != null) {
-                viaje.setFechaInicioReal(primerTramo.getHoraLlegadaReal());
-                viajeActualizado = true;
-                System.out.println("✅ Handler: Fecha inicio real actualizada a: " + primerTramo.getHoraLlegadaReal());
-            }
-
-            // 3. Actualizar fecha fin real (si está completado)
-            if ("completado".equals(nuevoEstado)) {
-                Tramo ultimoTramo = tramos.get(tramos.size() - 1);
-                if (ultimoTramo.getHoraSalidaRealDestino() != null && viaje.getFechaFinReal() == null) {
-                    viaje.setFechaFinReal(ultimoTramo.getHoraSalidaRealDestino());
-                    viajeActualizado = true;
+                // Si el viaje arranca (primer origen), marcamos inicio real
+                if ("en_curso".equals(nuevoEstado) && viaje.getFechaInicioReal() == null) {
+                    viaje.setFechaInicioReal(tramos.get(0).getHoraLlegadaReal());
                 }
+
+                // Si el viaje termina (último destino), marcamos fin real
+                if ("completado".equals(nuevoEstado)) {
+                    viaje.setFechaFinReal(tramos.get(tramos.size() - 1).getHoraSalidaRealDestino());
+                }
+
+                viaje.setFechaActualizacion(LocalDateTime.now());
+                viajeRepository.save(viaje); // Guardamos el cambio de estado primero
+                System.out.println("🔄 Viaje " + viajeId + " cambió de " + estadoAnterior + " a " + nuevoEstado);
             }
 
-            if (viajeActualizado) {
-                viaje.setFechaActualizacion(LocalDateTime.now());
-                viajeRepository.save(viaje); // Guardar el Viaje en la NUEVA transacción
-                System.out.println("💾 Handler: Viaje " + viajeId + " guardado en BD exitosamente.");
+            // 2. DISPARAR REPORTE (Solo si el viaje acaba de llegar a estado completado)
+            if ("completado".equals(nuevoEstado)) {
+                System.out.println("📊 Generando reporte final para el viaje: " + viaje.getCodigoViaje());
+                viajeReporteService.generarYGuardarReporte(viaje, tramos);
             }
 
         } catch (Exception e) {
-            System.err.println("❌ Error en ViajeEventHandler al procesar evento para Viaje ID: " + viajeId + " - "
-                    + e.getMessage());
-            e.printStackTrace();
+            System.err.println("❌ Error procesando evento de viaje: " + e.getMessage());
         }
     }
 
-    // Método auxiliar (Duplicado del Listener, pero necesario para el Handler)
     private String calcularEstadoViaje(List<Tramo> tramos) {
-        if (tramos == null || tramos.isEmpty()) {
-            return "pendiente";
-        }
+        long total = tramos.size();
+        long completados = tramos.stream().filter(t -> t.getEstado() == Tramo.EstadoTramo.completado).count();
+        long enCurso = tramos.stream().filter(t -> t.getEstado() == Tramo.EstadoTramo.en_curso).count();
 
-        long totalTramos = tramos.size();
-        long completados = tramos.stream()
-                .filter(t -> t.getEstado() != null && t.getEstado().name().equals("completado"))
-                .count();
-        long enCurso = tramos.stream()
-                .filter(t -> t.getEstado() != null && t.getEstado().name().equals("en_curso"))
-                .count();
-        long cancelados = tramos.stream()
-                .filter(t -> t.getEstado() != null && t.getEstado().name().equals("retrasado"))
-                .count();
-
-        if (completados == totalTramos) {
+        if (completados == total)
             return "completado";
-        }
-        if (enCurso > 0) {
+        if (enCurso > 0 || completados > 0)
             return "en_curso";
-        }
-        if (cancelados == totalTramos) {
-            return "cancelado";
-        }
-        if (completados > 0) {
-            return "en_curso";
-        }
         return "pendiente";
     }
 }

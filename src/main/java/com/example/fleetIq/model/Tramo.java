@@ -95,6 +95,46 @@ public class Tramo {
 
     @Column(name = "tiempo_atencion_cita2")
     private Integer tiempoAtencionCita2;
+    @Column(name = "hora_entrada_geocerca_interna_origen") // ⬅️ NUEVO CAMPO PERSISTENTE
+    private LocalDateTime horaEntradaGeocercaInternaOrigen;
+
+    @Column(name = "hora_entrada_geocerca_interna_destino") // ⬅️ NUEVO CAMPO PERSISTENTE
+    private LocalDateTime horaEntradaGeocercaInternaDestino;
+    // ========================================================================
+    // CAMPOS ADICIONALES NECESARIOS PARA GEOCERCAS ADYACENTES
+    // ========================================================================
+
+    // ==================== ORIGEN - GEOCERCA EXTERNA ====================
+    @Column(name = "hora_entrada_geocerca_externa_origen")
+    private LocalDateTime horaEntradaGeocercaExternaOrigen;
+
+    @Column(name = "hora_salida_geocerca_externa_origen_1")
+    private LocalDateTime horaSalidaGeocercaExternaOrigen1; // Primera salida (acceso → patio)
+
+    @Column(name = "hora_entrada_geocerca_externa_origen_2")
+    private LocalDateTime horaEntradaGeocercaExternaOrigen2; // Segunda entrada (patio → acceso)
+
+    @Column(name = "hora_salida_geocerca_externa_origen_2")
+    private LocalDateTime horaSalidaGeocercaExternaOrigen2; // Segunda salida (acceso → calle)
+
+    @Column(name = "hora_salida_geocerca_interna_origen")
+    private LocalDateTime horaSalidaGeocercaInternaOrigen;
+
+    // ==================== DESTINO - GEOCERCA EXTERNA ====================
+    @Column(name = "hora_entrada_geocerca_externa_destino")
+    private LocalDateTime horaEntradaGeocercaExternaDestino;
+
+    @Column(name = "hora_salida_geocerca_externa_destino_1")
+    private LocalDateTime horaSalidaGeocercaExternaDestino1; // Primera salida (acceso → patio)
+
+    @Column(name = "hora_entrada_geocerca_externa_destino_2")
+    private LocalDateTime horaEntradaGeocercaExternaDestino2; // Segunda entrada (patio → acceso)
+
+    @Column(name = "hora_salida_geocerca_externa_destino_2")
+    private LocalDateTime horaSalidaGeocercaExternaDestino2; // Segunda salida (acceso → calle)
+
+    @Column(name = "hora_salida_geocerca_interna_destino")
+    private LocalDateTime horaSalidaGeocercaInternaDestino;
 
     public enum TipoActividad {
         recojo, entrega, carga, descarga, inspeccion, despacho_full

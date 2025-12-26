@@ -32,16 +32,18 @@ public class AlarmServiceImpl implements AlarmService {
     @Autowired
     private DuplicateAlarmRepository duplicateAlarmRepository;
 
+    // ⭐ CONFIGURACIÓN DE ANTI-REBOTE (para geocercas adyacentes)
+    private static final long DEBOUNCE_SECONDS = 120; // 2 minutos para geocercas cercanas
+    private static final double MIN_DISTANCE_METERS = 80; // 80 metros mínimo
+    private static final double ADJACENT_GEOFENCE_THRESHOLD = 150.0; // Considerar adyacentes si están a <150m
+
     @Scheduled(fixedRate = 2000)
     public void checkAlarmsAutomatically() {
         try {
             LocalDateTime startTime = LocalDateTime.now();
             DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-            // 🔥 CAMBIO 1: Obtener tracks PENDING agrupados por IMEI
             List<Track> allPendingTracks = trackRepository.findByAlarmStatus("PENDING");
-
-            // Agrupar por IMEI
             Map<String, List<Track>> tracksByImei = allPendingTracks.stream()
                     .collect(Collectors.groupingBy(Track::getImei));
 
@@ -55,12 +57,10 @@ public class AlarmServiceImpl implements AlarmService {
             int evaluatedCount = 0;
             int duplicateErrorCount = 0;
 
-            // 🔥 CAMBIO 2: Procesar cada IMEI de forma independiente
             for (Map.Entry<String, List<Track>> entry : tracksByImei.entrySet()) {
                 String imei = entry.getKey();
                 List<Track> tracksForImei = entry.getValue();
 
-                // Ordenar tracks de este IMEI por tiempo (más antiguo primero)
                 List<Track> sortedTracks = tracksForImei.stream()
                         .sorted(Comparator.comparing(Track::getGpstime))
                         .collect(Collectors.toList());
@@ -68,10 +68,9 @@ public class AlarmServiceImpl implements AlarmService {
                 System.out.println("🚗 Procesando " + sortedTracks.size() +
                         " tracks para IMEI: " + imei);
 
-                // Procesar tracks de este IMEI en orden cronológico
                 for (Track track : sortedTracks) {
                     try {
-                        checkAndLogAlarm(track);
+                        checkAndLogAlarmWithDebounce(track);
 
                         switch (track.getAlarmStatus()) {
                             case "ALARM_REGISTERED":
@@ -108,7 +107,7 @@ public class AlarmServiceImpl implements AlarmService {
     }
 
     @Transactional
-    public void checkAndLogAlarm(Track track) throws Exception {
+    public void checkAndLogAlarmWithDebounce(Track track) throws Exception {
         if (track.getImei() == null || track.getLatitude() == null || track.getLongitude() == null) {
             throw new IllegalArgumentException("Track must have IMEI, latitude, and longitude");
         }
@@ -116,7 +115,6 @@ public class AlarmServiceImpl implements AlarmService {
         boolean alarmRegistered = false;
         boolean duplicateError = false;
 
-        // Obtener device info una sola vez
         String deviceName = "Unknown";
         String plateNumber = "Unknown";
         try {
@@ -136,7 +134,13 @@ public class AlarmServiceImpl implements AlarmService {
                 " | Lat: " + track.getLatitude() +
                 " | Lon: " + track.getLongitude());
 
+        // ⭐ PASO 1: Detectar en qué geocercas está el vehículo AHORA
+        List<Long> currentGeofences = new ArrayList<>();
+        Map<Long, Geofence> geofenceMap = new HashMap<>();
+
         for (Geofence geofence : geofences) {
+            geofenceMap.put(geofence.getId(), geofence);
+
             try {
                 JSONArray pointsArray = new JSONArray(geofence.getPoints());
                 double[] x = new double[pointsArray.length()];
@@ -148,105 +152,149 @@ public class AlarmServiceImpl implements AlarmService {
                     x[i] = point.getDouble(1);
                 }
 
-                boolean isCurrentlyInside = isPointInPolygon(track.getLongitude(), track.getLatitude(), x, y);
-                boolean hasActiveEntry = alarmRepository.existsByImeiAndGeofenceIdAndExitTimeIsNull(
-                        track.getImei(), geofence.getId());
-
-                // Solo mostrar geocercas relevantes
-                if (isCurrentlyInside || hasActiveEntry) {
-                    System.out.println("   📍 Geocerca " + geofence.getId() +
-                            " | Dentro: " + isCurrentlyInside +
-                            " | Activa: " + hasActiveEntry);
-                }
-
-                // ========== ENTRY ==========
-                if (isCurrentlyInside && !hasActiveEntry) {
-                    if (duplicateAlarmRepository.existsByImeiAndGeofenceIdAndAlarmType(
-                            track.getImei(), geofence.getId(), "ENTRY")) {
-                        System.err.println("   ⚠️ ENTRY duplicado en duplicate_alarms");
-                        duplicateError = true;
-                        continue;
-                    }
-
-                    Alarm alarm = new Alarm();
-                    alarm.setImei(truncateString(track.getImei(), 15));
-                    alarm.setGeofenceId(geofence.getId());
-                    alarm.setTrackTime(track.getGpstime());
-                    alarm.setAlarmType("ENTRY");
-                    alarm.setLatitude(track.getLatitude());
-                    alarm.setLongitude(track.getLongitude());
-                    alarm.setDeviceName(deviceName);
-                    alarm.setPlateNumber(plateNumber);
-                    alarm.setEntryTime(System.currentTimeMillis() / 1000L);
-                    alarm.setExitTime(null);
-
-                    try {
-                        alarmRepository.save(alarm);
-                        System.out.println("   ✅ ENTRY → Geocerca " + geofence.getId());
-                        alarmRegistered = true;
-                    } catch (DataIntegrityViolationException e) {
-                        System.err.println("   ⚠️ ENTRY duplicado: " + e.getMessage());
-                        saveDuplicateAlarm(alarm, e.getMessage());
-                        duplicateError = true;
-                    }
-
-                    // ========== EXIT ==========
-                } else if (!isCurrentlyInside && hasActiveEntry) {
-                    List<Alarm> activeAlarms = alarmRepository.findByImeiAndGeofenceIdAndExitTimeIsNull(
-                            track.getImei(), geofence.getId());
-
-                    if (activeAlarms.isEmpty()) {
-                        System.err.println("   ⚠️ hasActiveEntry=true pero no hay alarmas activas");
-                        continue;
-                    }
-
-                    if (activeAlarms.size() > 1) {
-                        System.err.println("   ⚠️ " + activeAlarms.size() + " alarmas activas. Cerrando duplicados...");
-                        activeAlarms.sort(Comparator.comparing(Alarm::getEntryTime).reversed());
-
-                        for (int i = 1; i < activeAlarms.size(); i++) {
-                            Alarm oldAlarm = activeAlarms.get(i);
-                            oldAlarm.setExitTime(System.currentTimeMillis() / 1000L);
-                            oldAlarm.setAlarmType("ENTRY_EXIT");
-                            alarmRepository.save(oldAlarm);
-                        }
-                    }
-
-                    Alarm activeAlarm = activeAlarms.get(0);
-                    activeAlarm.setExitTime(System.currentTimeMillis() / 1000L);
-                    activeAlarm.setAlarmType("ENTRY");
-                    alarmRepository.save(activeAlarm);
-
-                    Alarm exitAlarm = new Alarm();
-                    exitAlarm.setImei(truncateString(track.getImei(), 15));
-                    exitAlarm.setGeofenceId(geofence.getId());
-                    exitAlarm.setTrackTime(track.getGpstime());
-                    exitAlarm.setAlarmType("EXIT");
-                    exitAlarm.setDeviceName(deviceName);
-                    exitAlarm.setPlateNumber(plateNumber);
-                    exitAlarm.setLatitude(track.getLatitude());
-                    exitAlarm.setLongitude(track.getLongitude());
-                    exitAlarm.setEntryTime(activeAlarm.getEntryTime());
-                    exitAlarm.setExitTime(System.currentTimeMillis() / 1000L);
-
-                    try {
-                        alarmRepository.save(exitAlarm);
-                        long duration = exitAlarm.getExitTime() - exitAlarm.getEntryTime();
-                        System.out.println("   🚪 EXIT ← Geocerca " + geofence.getId() +
-                                " (" + duration + " seg)");
-                        alarmRegistered = true;
-                    } catch (DataIntegrityViolationException e) {
-                        System.err.println("   ⚠️ EXIT duplicado: " + e.getMessage());
-                        saveDuplicateAlarm(exitAlarm, e.getMessage());
-                        duplicateError = true;
-                    }
+                boolean isInside = isPointInPolygon(track.getLongitude(), track.getLatitude(), x, y);
+                if (isInside) {
+                    currentGeofences.add(geofence.getId());
                 }
             } catch (Exception e) {
-                System.err.println("   ❌ Error en geocerca " + geofence.getId() + ": " + e.getMessage());
+                System.err.println("   ❌ Error procesando geocerca " + geofence.getId() + ": " + e.getMessage());
             }
         }
 
-        // Actualizar estado
+        System.out.println("   🎯 Dentro de geocercas: " + currentGeofences);
+
+        // ⭐ PASO 2: Obtener geocercas activas (con ENTRY sin EXIT)
+        List<Alarm> activeAlarms = alarmRepository.findByImeiAndExitTimeIsNull(track.getImei());
+        Set<Long> activeGeofenceIds = activeAlarms.stream()
+                .map(Alarm::getGeofenceId)
+                .collect(Collectors.toSet());
+
+        System.out.println("   🔴 Geocercas activas: " + activeGeofenceIds);
+
+        // ⭐ PASO 3: Procesar ENTRADAS (está dentro pero no tiene alarma activa)
+        for (Long geofenceId : currentGeofences) {
+            if (activeGeofenceIds.contains(geofenceId)) {
+                continue; // Ya tiene entrada activa
+            }
+
+            // ⭐ VALIDACIÓN 1: Evitar rebotes de salida reciente
+            if (shouldIgnoreRecentExit(track.getImei(), geofenceId, track.getGpstime())) {
+                System.out.println("   ⏸️ IGNORANDO ENTRY geocerca " + geofenceId + " - Salida reciente (rebote GPS)");
+                continue;
+            }
+
+            // ⭐ VALIDACIÓN 2: Para geocercas adyacentes - verificar transición válida
+            if (!isValidTransition(track.getImei(), geofenceId, activeGeofenceIds, track.getGpstime(),
+                    track.getLatitude(), track.getLongitude())) {
+                System.out.println("   ⏸️ IGNORANDO ENTRY geocerca " + geofenceId
+                        + " - Transición muy rápida entre geocercas adyacentes");
+                continue;
+            }
+
+            // Crear ENTRY
+            Alarm alarm = new Alarm();
+            alarm.setImei(truncateString(track.getImei(), 15));
+            alarm.setGeofenceId(geofenceId);
+            alarm.setTrackTime(track.getGpstime());
+            alarm.setAlarmType("ENTRY");
+            alarm.setLatitude(track.getLatitude());
+            alarm.setLongitude(track.getLongitude());
+            alarm.setDeviceName(deviceName);
+            alarm.setPlateNumber(plateNumber);
+            alarm.setEntryTime(track.getGpstime());
+            alarm.setExitTime(null);
+
+            try {
+                alarmRepository.save(alarm);
+                System.out.println("   ✅ ENTRY → Geocerca " + geofenceId);
+                alarmRegistered = true;
+                activeGeofenceIds.add(geofenceId);
+            } catch (DataIntegrityViolationException e) {
+                System.err.println("   ⚠️ ENTRY duplicado: " + e.getMessage());
+                saveDuplicateAlarm(alarm, e.getMessage());
+                duplicateError = true;
+            }
+        }
+
+        // ⭐ PASO 4: Procesar SALIDAS (tiene alarma activa pero ya no está dentro)
+        Set<Long> geofencesToExit = new HashSet<>(activeGeofenceIds);
+        geofencesToExit.removeAll(currentGeofences);
+
+        for (Long geofenceId : geofencesToExit) {
+            List<Alarm> alarmsToClose = alarmRepository.findByImeiAndGeofenceIdAndExitTimeIsNull(
+                    track.getImei(), geofenceId);
+
+            if (alarmsToClose.isEmpty()) {
+                continue;
+            }
+
+            // Ordenar por tiempo de entrada (más reciente primero)
+            alarmsToClose.sort(Comparator.comparing(Alarm::getEntryTime).reversed());
+            Alarm activeAlarm = alarmsToClose.get(0);
+
+            // ⭐ VALIDACIÓN 1: Tiempo mínimo de permanencia
+            long timeSinceEntry = track.getGpstime() - activeAlarm.getEntryTime();
+            if (timeSinceEntry < DEBOUNCE_SECONDS) {
+                System.out.println("   ⏸️ IGNORANDO EXIT geocerca " + geofenceId + " - Tiempo muy corto ("
+                        + timeSinceEntry + "s)");
+                continue;
+            }
+
+            // ⭐ VALIDACIÓN 2: Distancia mínima recorrida
+            double distance = calculateDistance(
+                    activeAlarm.getLatitude(), activeAlarm.getLongitude(),
+                    track.getLatitude(), track.getLongitude());
+
+            if (distance < MIN_DISTANCE_METERS) {
+                System.out.println("   ⏸️ IGNORANDO EXIT geocerca " + geofenceId + " - Distancia muy corta (" +
+                        String.format("%.1f", distance) + "m)");
+                continue;
+            }
+
+            // Cerrar alarmas duplicadas si existen
+            if (alarmsToClose.size() > 1) {
+                System.err.println("   ⚠️ " + alarmsToClose.size() + " alarmas activas para geocerca " + geofenceId);
+                for (int i = 1; i < alarmsToClose.size(); i++) {
+                    Alarm oldAlarm = alarmsToClose.get(i);
+                    oldAlarm.setExitTime(track.getGpstime());
+                    oldAlarm.setAlarmType("ENTRY_EXIT");
+                    alarmRepository.save(oldAlarm);
+                }
+            }
+
+            // Cerrar alarma activa
+            activeAlarm.setExitTime(track.getGpstime());
+            activeAlarm.setAlarmType("ENTRY");
+            alarmRepository.save(activeAlarm);
+
+            // Crear alarma EXIT
+            Alarm exitAlarm = new Alarm();
+            exitAlarm.setImei(truncateString(track.getImei(), 15));
+            exitAlarm.setGeofenceId(geofenceId);
+            exitAlarm.setTrackTime(track.getGpstime());
+            exitAlarm.setAlarmType("EXIT");
+            exitAlarm.setDeviceName(deviceName);
+            exitAlarm.setPlateNumber(plateNumber);
+            exitAlarm.setLatitude(track.getLatitude());
+            exitAlarm.setLongitude(track.getLongitude());
+            exitAlarm.setEntryTime(activeAlarm.getEntryTime());
+            exitAlarm.setExitTime(track.getGpstime());
+
+            try {
+                alarmRepository.save(exitAlarm);
+                long duration = exitAlarm.getExitTime() - exitAlarm.getEntryTime();
+                System.out.println("   🚪 EXIT ← Geocerca " + geofenceId +
+                        " (" + duration + "s | " + String.format("%.1f", distance) + "m)");
+                alarmRegistered = true;
+                activeGeofenceIds.remove(geofenceId);
+            } catch (DataIntegrityViolationException e) {
+                System.err.println("   ⚠️ EXIT duplicado: " + e.getMessage());
+                saveDuplicateAlarm(exitAlarm, e.getMessage());
+                duplicateError = true;
+            }
+        }
+
+        // Actualizar estado del track
         if (duplicateError) {
             track.setAlarmStatus("ERROR_DUPLICATE");
             track.setAlarmErrorDescription("Duplicate detected");
@@ -259,6 +307,108 @@ public class AlarmServiceImpl implements AlarmService {
         }
 
         trackRepository.save(track);
+    }
+
+    /**
+     * ⭐ Valida si la transición entre geocercas es legítima (no rebote)
+     */
+    private boolean isValidTransition(String imei, Long newGeofenceId, Set<Long> activeGeofenceIds,
+            Long currentGpstime, double currentLat, double currentLon) {
+        try {
+            // Si no hay geocercas activas, siempre es válido
+            if (activeGeofenceIds.isEmpty()) {
+                return true;
+            }
+
+            // Obtener la última entrada en cualquier geocerca
+            List<Alarm> recentEntries = alarmRepository.findByImei(imei).stream()
+                    .filter(a -> "ENTRY".equals(a.getAlarmType()))
+                    .filter(a -> currentGpstime - a.getEntryTime() < DEBOUNCE_SECONDS)
+                    .sorted(Comparator.comparing(Alarm::getEntryTime).reversed())
+                    .collect(Collectors.toList());
+
+            if (recentEntries.isEmpty()) {
+                return true;
+            }
+
+            Alarm lastEntry = recentEntries.get(0);
+            long timeSinceLastEntry = currentGpstime - lastEntry.getEntryTime();
+
+            // Si la última entrada fue hace muy poco, calcular distancia
+            if (timeSinceLastEntry < DEBOUNCE_SECONDS) {
+                double distanceFromLastEntry = calculateDistance(
+                        lastEntry.getLatitude(), lastEntry.getLongitude(),
+                        currentLat, currentLon);
+
+                // Si no se movió significativamente, es rebote
+                if (distanceFromLastEntry < MIN_DISTANCE_METERS) {
+                    System.out.println("      ⚠️ Distancia desde última entrada: " +
+                            String.format("%.1f", distanceFromLastEntry) + "m (muy cerca)");
+                    return false;
+                }
+            }
+
+            return true;
+
+        } catch (Exception e) {
+            System.err.println("⚠️ Error validando transición: " + e.getMessage());
+            return true; // En caso de error, permitir la transición
+        }
+    }
+
+    /**
+     * Verifica si existe una salida reciente que debería considerarse un rebote
+     */
+    private boolean shouldIgnoreRecentExit(String imei, Long geofenceId, Long currentGpstime) {
+        try {
+            List<Alarm> recentExits = alarmRepository.findByImeiAndGeofenceIdAndAlarmType(
+                    imei, geofenceId, "EXIT");
+
+            if (recentExits.isEmpty()) {
+                return false;
+            }
+
+            recentExits.sort(Comparator.comparing(Alarm::getExitTime).reversed());
+            Alarm lastExit = recentExits.get(0);
+
+            long timeSinceExit = currentGpstime - lastExit.getExitTime();
+
+            if (timeSinceExit < DEBOUNCE_SECONDS) {
+                System.out.println("      ⚠️ Última salida hace " + timeSinceExit + "s");
+                return true;
+            }
+
+            return false;
+
+        } catch (Exception e) {
+            System.err.println("⚠️ Error verificando salida reciente: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Calcula la distancia en metros entre dos puntos GPS (fórmula de Haversine)
+     */
+    private double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+        final int EARTH_RADIUS = 6371000; // metros
+
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLon = Math.toRadians(lon2 - lon1);
+
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+                        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+        return EARTH_RADIUS * c;
+    }
+
+    // ========== MÉTODOS AUXILIARES ==========
+
+    @Transactional
+    public void checkAndLogAlarm(Track track) throws Exception {
+        checkAndLogAlarmWithDebounce(track);
     }
 
     private void saveDuplicateAlarm(Alarm alarm, String errorMessage) {

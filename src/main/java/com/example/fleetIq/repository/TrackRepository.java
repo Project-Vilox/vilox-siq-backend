@@ -6,48 +6,83 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Repository
 public interface TrackRepository extends JpaRepository<Track, Long> {
-    // Existing methods (unchanged)
-    @Query("SELECT t FROM Track t WHERE t.id IN " +
-            "(SELECT MAX(t2.id) FROM Track t2 GROUP BY t2.imei)")
-    List<Track> findLatestTracksByImei();
+  // Existing methods (unchanged)
+  @Query("SELECT t FROM Track t WHERE t.id IN " +
+      "(SELECT MAX(t2.id) FROM Track t2 GROUP BY t2.imei)")
+  List<Track> findLatestTracksByImei();
 
-    @Query("SELECT t FROM Track t WHERE t.gpstime IN " +
-            "(SELECT MAX(t2.gpstime) FROM Track t2 GROUP BY t2.imei)")
-    List<Track> findLatestTracksByImeiAndTime();
+  @Query("SELECT t FROM Track t WHERE t.gpstime IN " +
+      "(SELECT MAX(t2.gpstime) FROM Track t2 GROUP BY t2.imei)")
+  List<Track> findLatestTracksByImeiAndTime();
 
-    @Query("SELECT t FROM Track t WHERE t.gpstime > :timestamp")
-    List<Track> findActiveTracksSince(@Param("timestamp") Long timestamp);
+  @Query("SELECT t FROM Track t WHERE t.gpstime > :timestamp")
+  List<Track> findActiveTracksSince(@Param("timestamp") Long timestamp);
 
-    @Query("SELECT t FROM Track t WHERE t.imei = :imei ORDER BY t.id DESC LIMIT 1")
-    Track findLatestTrackByImei(@Param("imei") String imei);
+  @Query("SELECT t FROM Track t WHERE t.imei = :imei ORDER BY t.id DESC LIMIT 1")
+  Track findLatestTrackByImei(@Param("imei") String imei);
 
-    List<Track> findByImei(String imei);
+  // 🆕 NUEVO MÉTODO: Buscar track en rango de tiempo
+  // NOTA: Ajusta según tu tipo de dato de gpstime (Long o LocalDateTime)
+  // @Query(value = """
+  // SELECT * FROM tracks
+  // WHERE imei = :imei
+  // AND gpstime BETWEEN :startTime AND :endTime
+  // ORDER BY gpstime DESC
+  // LIMIT 1
+  // """, nativeQuery = true)
+  // Track findLatestTrackByImeiInTimeRange(
+  // @Param("imei") String imei,
+  // @Param("startTime") Long startTime,
+  // @Param("endTime") Long endTime);
+  @Query(value = """
+          SELECT * FROM tracks
+          WHERE imei = :imei
+          AND gpstime BETWEEN :startTime AND :endTime
+          AND latitude IS NOT NULL
+          AND longitude IS NOT NULL
+          ORDER BY gpstime DESC, id DESC
+          LIMIT 1
+      """, nativeQuery = true)
+  Track findLatestTrackByImeiInTimeRange(
+      @Param("imei") String imei,
+      @Param("startTime") Long startTime,
+      @Param("endTime") Long endTime);
 
-    @Query("SELECT t FROM Track t ORDER BY t.gpstime DESC")
-    List<Track> findAllOrderByGpstimeDesc();
+  List<Track> findByImei(String imei);
 
-    @Query("SELECT t FROM Track t WHERE t.imei = :imei AND t.gpstime BETWEEN :beginTime AND :endTime ORDER BY t.gpstime ASC")
-    List<Track> findByImeiAndTimeBetween(@Param("imei") String imei, @Param("beginTime") Long beginTime, @Param("endTime") Long endTime);
+  @Query("SELECT t FROM Track t ORDER BY t.gpstime DESC")
+  List<Track> findAllOrderByGpstimeDesc();
 
-    @Query("SELECT t FROM Track t WHERE t.gpstime >= :timestamp AND t.id IN (SELECT MAX(t2.id) FROM Track t2 GROUP BY t2.imei)")
-    List<Track> findLatestTracksByImeiWithinLastMinutes(@Param("timestamp") Long timestamp);
+  @Query("SELECT t FROM Track t WHERE t.imei = :imei AND t.gpstime BETWEEN :beginTime AND :endTime ORDER BY t.gpstime ASC")
+  List<Track> findByImeiAndTimeBetween(@Param("imei") String imei, @Param("beginTime") Long beginTime,
+      @Param("endTime") Long endTime);
 
-    @Query("SELECT t FROM Track t INNER JOIN Vehiculo v ON t.imei = v.imei WHERE v.id = :vehiculoId AND t.hearttime BETWEEN :beginTime AND :endTime ORDER BY t.hearttime ASC")
-    List<Track> findByVehiculoIdAndHearttimeBetween(@Param("vehiculoId") String vehiculoId, @Param("beginTime") Long beginTime, @Param("endTime") Long endTime);
+  @Query("SELECT t FROM Track t WHERE t.gpstime >= :timestamp AND t.id IN (SELECT MAX(t2.id) FROM Track t2 GROUP BY t2.imei)")
+  List<Track> findLatestTracksByImeiWithinLastMinutes(@Param("timestamp") Long timestamp);
 
-    // New method for latest track by vehiculoId
-    @Query("SELECT t FROM Track t INNER JOIN Vehiculo v ON t.imei = v.imei WHERE v.id = :vehiculoId ORDER BY t.hearttime DESC")
-    List<Track> findLatestTrackByVehiculoId(@Param("vehiculoId") String vehiculoId);
+  @Query("SELECT t FROM Track t INNER JOIN Vehiculo v ON t.imei = v.imei WHERE v.id = :vehiculoId AND t.hearttime BETWEEN :beginTime AND :endTime ORDER BY t.hearttime ASC")
+  List<Track> findByVehiculoIdAndHearttimeBetween(@Param("vehiculoId") String vehiculoId,
+      @Param("beginTime") Long beginTime, @Param("endTime") Long endTime);
 
-    // NEW: Find latest tracks within last minutes with alarm_status = 'PENDING'
-    @Query("SELECT t FROM Track t WHERE t.gpstime >= :timestamp AND t.alarmStatus = 'PENDING' AND t.id IN (SELECT MAX(t2.id) FROM Track t2 GROUP BY t2.imei)")
-    List<Track> findLatestPendingTracksByImeiWithinLastMinutes(@Param("timestamp") Long timestamp);
+  // New method for latest track by vehiculoId
+  @Query("SELECT t FROM Track t INNER JOIN Vehiculo v ON t.imei = v.imei WHERE v.id = :vehiculoId ORDER BY t.hearttime DESC")
+  List<Track> findLatestTrackByVehiculoId(@Param("vehiculoId") String vehiculoId);
 
-    List<Track> findByAlarmStatus(String alarmStatus);
+  // NEW: Find latest tracks within last minutes with alarm_status = 'PENDING'
+  @Query("SELECT t FROM Track t WHERE t.gpstime >= :timestamp AND t.alarmStatus = 'PENDING' AND t.id IN (SELECT MAX(t2.id) FROM Track t2 GROUP BY t2.imei)")
+  List<Track> findLatestPendingTracksByImeiWithinLastMinutes(@Param("timestamp") Long timestamp);
 
-    Track findByImeiAndGpstimeAndLatitudeAndLongitudeAndGpstimeBetween(String imei, Long gpstime, Double latitude, Double longitude, Long startOfDay, Long endOfDay);
+  List<Track> findByAlarmStatus(String alarmStatus);
+
+  Track findByImeiAndGpstimeAndLatitudeAndLongitudeAndGpstimeBetween(String imei, Long gpstime, Double latitude,
+      Double longitude, Long startOfDay, Long endOfDay);
+
+  @Query("SELECT t FROM Track t WHERE t.imei = ?1 AND t.gpstime >= ?2 AND t.gpstime <= ?3")
+  List<Track> findLatestTracksByImeiInTimeRange(String imei, long inicio, long fin);
+
 }
