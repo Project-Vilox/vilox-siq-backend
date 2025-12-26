@@ -7,6 +7,9 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 @Entity
 @Table(name = "establecimientos")
 @Data
@@ -29,10 +32,10 @@ public class Establecimiento {
     @Column(name = "direccion")
     private String direccion;
 
-    @Column(name = "latitud", precision = 10, scale = 8)
+    @Column(name = "latitud", precision = 12, scale = 9)
     private BigDecimal latitud;
 
-    @Column(name = "longitud", precision = 11, scale = 8)
+    @Column(name = "longitud", precision = 12, scale = 9)
     private BigDecimal longitud;
 
     @Column(name = "publico")
@@ -41,9 +44,17 @@ public class Establecimiento {
     @Column(name = "activo")
     private Boolean activo;
 
+    @JdbcTypeCode(SqlTypes.JSON) // 👈 Esto le dice a Hibernate que lo trate como JSON en Postgres
     @Column(name = "configuracion_sla", columnDefinition = "JSON")
     private String configuracionSla;
 
     @Column(name = "fecha_creacion")
     private LocalDateTime fechaCreacion;
+
+    // 🆕 NUEVO CAMPO para saber si las coordenadas son calculadas
+    @Column(name = "centroide_calculado")
+    private Boolean centroideCalculado = false;
+
+    @Column(name = "fecha_calculo_centroide")
+    private LocalDateTime fechaCalculoCentroide;
 }

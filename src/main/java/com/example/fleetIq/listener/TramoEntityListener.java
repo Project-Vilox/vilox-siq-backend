@@ -24,25 +24,44 @@ public class TramoEntityListener {
   @PrePersist
   @PreUpdate
   public void calcularMetricas(Tramo tramo) {
-    System.out.println("📊 Calculando métricas para Tramo ID: " + tramo.getId() + " (Orden: " + tramo.getOrden() + ")");
+    System.out.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    System.out.println("📊 Calculando métricas para Tramo #" + tramo.getOrden() +
+        " (ID: " + tramo.getId() + ")");
+    System.out.println("   Estado actual: " + tramo.getEstado());
 
-    // Calcular métricas del ORIGEN (Cita 1) - Siempre que haya datos
-    if (tramo.getHoraLlegadaReal() != null && tramo.getHoraSalidaReal() != null) {
+    // ⚠️ NO CALCULAR MÉTRICAS SI EL TRAMO ESTÁ PENDIENTE
+    if (tramo.getEstado() == Tramo.EstadoTramo.pendiente) {
+      System.out.println("⏸️ Tramo pendiente, no se calculan métricas aún");
+      System.out.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      return;
+    }
+
+    // 📍 CALCULAR MÉTRICAS DEL ORIGEN (Cita 1)
+    // Se calcula cuando el tramo está EN_CURSO y tiene datos del origen
+    if (tramo.getHoraLlegadaReal() != null) {
       calcularMetricasOrigen(tramo);
     }
 
-    // Calcular métricas del DESTINO (Cita 2) - Solo si el tramo está completado
-    if (tramo.getEstado() == Tramo.EstadoTramo.completado &&
-        tramo.getHoraLlegadaRealDestino() != null &&
-        tramo.getHoraSalidaRealDestino() != null) {
-      calcularMetricasDestino(tramo);
+    // 🎯 CALCULAR TARDANZA DEL DESTINO (Cita 2) - CUANDO LLEGA
+    // ✅ NUEVO: Se calcula tan pronto llegue al destino, sin esperar a completar
+    if (tramo.getHoraLlegadaRealDestino() != null) {
+      calcularTardanzaDestino(tramo);
     }
+
+    // 🎯 CALCULAR PERMANENCIA Y ATENCIÓN DEL DESTINO - CUANDO SALE
+    // Se calcula cuando el tramo está COMPLETADO y tiene salida del destino
+    if (tramo.getEstado() == Tramo.EstadoTramo.completado &&
+        tramo.getHoraSalidaRealDestino() != null) {
+      calcularPermanenciaYAtencionDestino(tramo);
+    }
+
+    System.out.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   }
 
   @PostUpdate
   public void onTramoUpdate(Tramo tramo) {
-    System.out.println("🔄 TramoEntityListener: Tramo actualizado ID: " + tramo.getId());
-    System.out.println("   Estado: " + tramo.getEstado());
+    System.out.println("🔄 TramoEntityListener: Tramo actualizado");
+    System.out.println("   Tramo #" + tramo.getOrden() + " - Estado: " + tramo.getEstado());
 
     try {
       Viaje viaje = tramo.getViaje();
@@ -51,18 +70,23 @@ public class TramoEntityListener {
         return;
       }
 
-      List<Tramo> tramos = viaje.getTramos();
-      tramos.sort((a, b) -> Integer.compare(a.getOrden(), b.getOrden()));
+      // ⚠️ SOLO PUBLICAR EVENTO SI HAY CAMBIOS SIGNIFICATIVOS
+      if (tramo.getEstado() == Tramo.EstadoTramo.completado ||
+          tramo.getEstado() == Tramo.EstadoTramo.en_curso) {
 
-      String nuevoEstado = calcularEstadoViaje(tramos);
-      String estadoActual = viaje.getEstado();
+        List<Tramo> tramos = viaje.getTramos();
+        tramos.sort((a, b) -> Integer.compare(a.getOrden(), b.getOrden()));
 
-      System.out.println("🔍 Estado actual viaje: " + estadoActual);
-      System.out.println("🔍 Estado calculado: " + nuevoEstado);
+        String nuevoEstado = calcularEstadoViaje(tramos);
+        String estadoActual = viaje.getEstado();
 
-      if (!nuevoEstado.equals(estadoActual)) {
-        eventPublisher.publishEvent(new ViajeUpdateEvent(this, viaje.getId()));
-        System.out.println("📢 EVENTO PUBLICADO para actualizar Viaje ID: " + viaje.getId());
+        System.out.println("🔍 Estado actual viaje: " + estadoActual);
+        System.out.println("🔍 Estado calculado: " + nuevoEstado);
+
+        if (!nuevoEstado.equals(estadoActual)) {
+          eventPublisher.publishEvent(new ViajeUpdateEvent(this, viaje.getId()));
+          System.out.println("📢 EVENTO PUBLICADO para actualizar Viaje ID: " + viaje.getId());
+        }
       }
 
     } catch (Exception e) {
@@ -73,110 +97,199 @@ public class TramoEntityListener {
 
   /**
    * 📍 CALCULA MÉTRICAS DEL ESTABLECIMIENTO ORIGEN (CITA 1)
-   * Se ejecuta cuando el vehículo sale del origen
+   * 
+   * IMPORTANTE: En viajes multi-tramo, un mismo establecimiento puede ser:
+   * - Destino del Tramo N (métricas Cita2)
+   * - Origen del Tramo N+1 (métricas Cita1)
+   * 
+   * Cada visita se registra independientemente en su tramo correspondiente.
+   * 
+   * CÁLCULOS:
+   * - Tardanza = horaLlegadaReal - horaLlegadaProgramada
+   * - Permanencia = horaSalidaReal - horaLlegadaReal
+   * - Atención = SE CALCULA EN TramoServiceImpl (desde ENTRY a EXIT de geocerca
+   * interna)
    */
   private void calcularMetricasOrigen(Tramo tramo) {
-    System.out.println("📍 Calculando métricas del ORIGEN: " +
-        (tramo.getEstablecimientoOrigen() != null ? tramo.getEstablecimientoOrigen().getNombre() : "N/A"));
+    String nombreOrigen = tramo.getEstablecimientoOrigen() != null
+        ? tramo.getEstablecimientoOrigen().getNombre()
+        : "N/A";
+
+    System.out.println("┌─────────────────────────────────────────┐");
+    System.out.println("│ 📍 MÉTRICAS ORIGEN (Cita 1)             │");
+    System.out.println("│ Establecimiento: " + String.format("%-24s", nombreOrigen) + "│");
+    System.out.println("└─────────────────────────────────────────┘");
 
     LocalDateTime llegadaProgramada = tramo.getHoraLlegadaProgramada();
     LocalDateTime llegadaReal = tramo.getHoraLlegadaReal();
     LocalDateTime salidaReal = tramo.getHoraSalidaReal();
-    LocalDateTime salidaProgramada = tramo.getHoraSalidaProgramada();
 
     // 1️⃣ TARDANZA EN ORIGEN
     if (llegadaProgramada != null && llegadaReal != null) {
       long tardanzaMinutos = Duration.between(llegadaProgramada, llegadaReal).toMinutes();
       tramo.setTardanzaCita1((int) Math.max(0, tardanzaMinutos));
 
-      System.out.println("   🕐 Tardanza Origen: " + tramo.getTardanzaCita1() + " min " +
-          (tramo.getTardanzaCita1() == 0 ? "(A TIEMPO ✓)" : "(RETRASO ⚠)"));
+      String estado = tramo.getTardanzaCita1() == 0 ? "✅ A TIEMPO" : "⚠️ CON RETRASO";
+      System.out.println("   🕐 Tardanza: " + tramo.getTardanzaCita1() + " min " + estado);
+      System.out.println("      Programada: " + llegadaProgramada);
+      System.out.println("      Real: " + llegadaReal);
     }
 
-    // 2️⃣ PERMANENCIA EN ORIGEN
+    // 2️⃣ PERMANENCIA EN ORIGEN (Tiempo total en el establecimiento)
     if (llegadaReal != null && salidaReal != null) {
       long permanenciaMinutos = Duration.between(llegadaReal, salidaReal).toMinutes();
       tramo.setTiempoPermanenciaCita1((int) permanenciaMinutos);
 
-      System.out.println("   ⏱️ Permanencia Origen: " + tramo.getTiempoPermanenciaCita1() + " min");
-    }
+      System.out.println("   ⏱️ Permanencia Total: " + tramo.getTiempoPermanenciaCita1() + " min");
+      System.out.println("      Desde: " + llegadaReal + " (entrada externa)");
+      System.out.println("      Hasta: " + salidaReal + " (salida externa final)");
 
-    // 3️⃣ TIEMPO DE ATENCIÓN EN ORIGEN
-    if (llegadaReal != null && salidaReal != null &&
-        llegadaProgramada != null && salidaProgramada != null) {
-
-      long permanenciaReal = Duration.between(llegadaReal, salidaReal).toMinutes();
-      long permanenciaProgramada = Duration.between(llegadaProgramada, salidaProgramada).toMinutes();
-      long tiempoAtencion = Math.abs(permanenciaReal - permanenciaProgramada);
-
-      tramo.setTiempoAtencionCita1((int) tiempoAtencion);
-
-      String evaluacion = permanenciaReal > permanenciaProgramada ? "(TOMÓ MÁS TIEMPO ⚠)" : "(MÁS RÁPIDO ✓)";
-
-      System.out.println("   🎯 Tiempo Atención Origen: " + tramo.getTiempoAtencionCita1() + " min " + evaluacion);
+      // ✅ VALIDACIÓN INMEDIATA: El tiempo de atención no puede exceder la permanencia
+      if (tramo.getTiempoAtencionCita1() != null) {
+        if (tramo.getTiempoAtencionCita1() > permanenciaMinutos) {
+          System.out.println("   ⚠️ [CORRECCIÓN ORIGEN] Atención (" + tramo.getTiempoAtencionCita1() +
+              " min) excedía permanencia (" + permanenciaMinutos + " min). Ajustando...");
+          tramo.setTiempoAtencionCita1((int) permanenciaMinutos);
+        } else {
+          System.out.println("   🅿️ Atención: " + tramo.getTiempoAtencionCita1() + " min (OK)");
+        }
+      }
     }
   }
 
   /**
-   * 🎯 CALCULA MÉTRICAS DEL ESTABLECIMIENTO DESTINO (CITA 2)
-   * Se ejecuta cuando el tramo se completa (sale del destino)
+   * 🎯 CALCULA SOLO LA TARDANZA DEL DESTINO (Cita 2)
+   * Se ejecuta TAN PRONTO como llega al destino (tramo EN_CURSO)
+   * 
+   * IMPORTANTE: En viajes multi-tramo, un mismo establecimiento puede ser:
+   * - Destino del Tramo N (métricas Cita2) ← Se calcula aquí
+   * - Origen del Tramo N+1 (métricas Cita1) ← Se calculará en el siguiente tramo
+   * 
+   * CÁLCULOS:
+   * - Tardanza = horaLlegadaRealDestino - horaSalidaProgramada
    */
-  private void calcularMetricasDestino(Tramo tramo) {
-    System.out.println("🎯 Calculando métricas del DESTINO: " +
-        (tramo.getEstablecimientoDestino() != null ? tramo.getEstablecimientoDestino().getNombre() : "N/A"));
+  private void calcularTardanzaDestino(Tramo tramo) {
+    // Si ya fue calculada, no recalcular
+    if (tramo.getTardanzaCita2() != null) {
+      return;
+    }
 
-    LocalDateTime llegadaProgramadaDestino = tramo.getHoraSalidaProgramada(); // La hora de salida programada del origen
-                                                                              // es la llegada esperada al destino
+    String nombreDestino = tramo.getEstablecimientoDestino() != null
+        ? tramo.getEstablecimientoDestino().getNombre()
+        : "N/A";
+
+    System.out.println("┌─────────────────────────────────────────┐");
+    System.out.println("│ 🎯 TARDANZA DESTINO (Cita 2)            │");
+    System.out.println("│ Establecimiento: " + String.format("%-24s", nombreDestino) + "│");
+    System.out.println("└─────────────────────────────────────────┘");
+
+    LocalDateTime llegadaProgramadaDestino = tramo.getHoraSalidaProgramada();
     LocalDateTime llegadaRealDestino = tramo.getHoraLlegadaRealDestino();
-    LocalDateTime salidaRealDestino = tramo.getHoraSalidaRealDestino();
 
     // 1️⃣ TARDANZA EN DESTINO
     if (llegadaProgramadaDestino != null && llegadaRealDestino != null) {
       long tardanzaMinutos = Duration.between(llegadaProgramadaDestino, llegadaRealDestino).toMinutes();
       tramo.setTardanzaCita2((int) Math.max(0, tardanzaMinutos));
 
-      System.out.println("   🕐 Tardanza Destino: " + tramo.getTardanzaCita2() + " min " +
-          (tramo.getTardanzaCita2() == 0 ? "(A TIEMPO ✓)" : "(RETRASO ⚠)"));
+      String estado = tramo.getTardanzaCita2() == 0 ? "✅ A TIEMPO" : "⚠️ CON RETRASO";
+      System.out.println("   🕐 Tardanza Destino: " + tramo.getTardanzaCita2() + " min " + estado);
+      System.out.println("      Programada: " + llegadaProgramadaDestino);
+      System.out.println("      Real: " + llegadaRealDestino);
     }
+  }
+
+  /**
+   * 🎯 CALCULA PERMANENCIA Y ATENCIÓN DEL DESTINO (Cita 2)
+   * Se ejecuta cuando el tramo está COMPLETADO (ya salió del destino)
+   * 
+   * CÁLCULOS:
+   * - Permanencia = horaSalidaRealDestino - horaLlegadaRealDestino
+   * - Atención = SE CALCULA EN TramoServiceImpl
+   */
+  private void calcularPermanenciaYAtencionDestino(Tramo tramo) {
+    String nombreDestino = tramo.getEstablecimientoDestino() != null
+        ? tramo.getEstablecimientoDestino().getNombre()
+        : "N/A";
+
+    System.out.println("┌─────────────────────────────────────────┐");
+    System.out.println("│ 🎯 PERMANENCIA DESTINO (Cita 2)         │");
+    System.out.println("│ Establecimiento: " + String.format("%-24s", nombreDestino) + "│");
+    System.out.println("└─────────────────────────────────────────┘");
+
+    LocalDateTime llegadaRealDestino = tramo.getHoraLlegadaRealDestino();
+    LocalDateTime salidaRealDestino = tramo.getHoraSalidaRealDestino();
 
     // 2️⃣ PERMANENCIA EN DESTINO
     if (llegadaRealDestino != null && salidaRealDestino != null) {
       long permanenciaMinutos = Duration.between(llegadaRealDestino, salidaRealDestino).toMinutes();
       tramo.setTiempoPermanenciaCita2((int) permanenciaMinutos);
 
-      System.out.println("   ⏱️ Permanencia Destino: " + tramo.getTiempoPermanenciaCita2() + " min");
+      System.out.println("   ⏱️ Permanencia Total: " + tramo.getTiempoPermanenciaCita2() + " min");
+      System.out.println("      Desde: " + llegadaRealDestino + " (entrada externa)");
+      System.out.println("      Hasta: " + salidaRealDestino + " (salida externa final)");
+
+      // ✅ VALIDACIÓN INMEDIATA: El tiempo de atención no puede exceder la permanencia
+      if (tramo.getTiempoAtencionCita2() != null) {
+        if (tramo.getTiempoAtencionCita2() > permanenciaMinutos) {
+          System.out.println("   ⚠️ [CORRECCIÓN DESTINO] Atención (" + tramo.getTiempoAtencionCita2() +
+              " min) excedía permanencia (" + permanenciaMinutos + " min). Ajustando...");
+          tramo.setTiempoAtencionCita2((int) permanenciaMinutos);
+        } else {
+          System.out.println("   🅿️ Atención: " + tramo.getTiempoAtencionCita2() + " min (OK)");
+        }
+      }
     }
 
-    // 3️⃣ TIEMPO DE ATENCIÓN EN DESTINO
-    // Aquí puedes comparar con el SLA o un tiempo esperado de descarga
-    if (llegadaRealDestino != null && salidaRealDestino != null && tramo.getSlaMinutos() != null) {
-      long permanenciaReal = Duration.between(llegadaRealDestino, salidaRealDestino).toMinutes();
-      long tiempoAtencion = Math.abs(permanenciaReal - tramo.getSlaMinutos());
-
-      tramo.setTiempoAtencionCita2((int) tiempoAtencion);
-
-      String evaluacion = permanenciaReal > tramo.getSlaMinutos() ? "(EXCEDIÓ SLA ⚠)" : "(DENTRO DE SLA ✓)";
-
-      System.out.println("   🎯 Tiempo Atención Destino: " + tramo.getTiempoAtencionCita2() + " min " + evaluacion);
-      System.out.println("      SLA: " + tramo.getSlaMinutos() + " min | Real: " + permanenciaReal + " min");
-    }
-
-    System.out.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    System.out.println("📊 RESUMEN COMPLETO DEL TRAMO #" + tramo.getOrden());
-    System.out.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    System.out.println("📍 ORIGEN ("
-        + (tramo.getEstablecimientoOrigen() != null ? tramo.getEstablecimientoOrigen().getNombre() : "N/A") + "):");
-    System.out.println("   Tardanza: " + tramo.getTardanzaCita1() + " min");
-    System.out.println("   Permanencia: " + tramo.getTiempoPermanenciaCita1() + " min");
-    System.out.println("   Atención: " + tramo.getTiempoAtencionCita1() + " min");
-    System.out.println("🎯 DESTINO ("
-        + (tramo.getEstablecimientoDestino() != null ? tramo.getEstablecimientoDestino().getNombre() : "N/A") + "):");
-    System.out.println("   Tardanza: " + tramo.getTardanzaCita2() + " min");
-    System.out.println("   Permanencia: " + tramo.getTiempoPermanenciaCita2() + " min");
-    System.out.println("   Atención: " + tramo.getTiempoAtencionCita2() + " min");
-    System.out.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    // 📋 RESUMEN COMPLETO DEL TRAMO
+    imprimirResumenCompleto(tramo);
   }
 
+  /**
+   * 📋 IMPRIME RESUMEN COMPLETO DE TODAS LAS MÉTRICAS DEL TRAMO
+   */
+  private void imprimirResumenCompleto(Tramo tramo) {
+    System.out.println("╔═════════════════════════════════════════════════════════════╗");
+    System.out.println("║ 📊 RESUMEN COMPLETO - TRAMO #" + tramo.getOrden());
+    System.out.println("╠═════════════════════════════════════════════════════════════╣");
+
+    // ORIGEN
+    String nombreOrigen = tramo.getEstablecimientoOrigen() != null
+        ? tramo.getEstablecimientoOrigen().getNombre()
+        : "N/A";
+    System.out.println("║ 📍 ORIGEN: " + nombreOrigen);
+    System.out.println("║    Tardanza........: " + formatearMetrica(tramo.getTardanzaCita1()));
+    System.out.println("║    Permanencia.....: " + formatearMetrica(tramo.getTiempoPermanenciaCita1()));
+    System.out.println("║    Atención........: " + formatearMetrica(tramo.getTiempoAtencionCita1()));
+    System.out.println("╠─────────────────────────────────────────────────────────────╣");
+
+    // DESTINO
+    String nombreDestino = tramo.getEstablecimientoDestino() != null
+        ? tramo.getEstablecimientoDestino().getNombre()
+        : "N/A";
+    System.out.println("║ 🎯 DESTINO: " + nombreDestino);
+    System.out.println("║    Tardanza........: " + formatearMetrica(tramo.getTardanzaCita2()));
+    System.out.println("║    Permanencia.....: " + formatearMetrica(tramo.getTiempoPermanenciaCita2()));
+    System.out.println("║    Atención........: " + formatearMetrica(tramo.getTiempoAtencionCita2()));
+    System.out.println("╠─────────────────────────────────────────────────────────────╣");
+
+    // ESTADO
+    System.out.println("║ 📊 ESTADO FINAL: " + tramo.getEstado());
+    System.out.println("╚═════════════════════════════════════════════════════════════╝");
+  }
+
+  /**
+   * Formatea una métrica para visualización
+   */
+  private String formatearMetrica(Integer minutos) {
+    if (minutos == null) {
+      return "N/A";
+    }
+    return minutos + " min";
+  }
+
+  /**
+   * Calcula el estado del viaje basado en los estados de sus tramos
+   */
   private String calcularEstadoViaje(List<Tramo> tramos) {
     if (tramos == null || tramos.isEmpty()) {
       return "pendiente";
@@ -184,27 +297,29 @@ public class TramoEntityListener {
 
     long totalTramos = tramos.size();
     long completados = tramos.stream()
-        .filter(t -> t.getEstado() != null && t.getEstado().name().equals("completado"))
+        .filter(t -> t.getEstado() == Tramo.EstadoTramo.completado)
         .count();
     long enCurso = tramos.stream()
-        .filter(t -> t.getEstado() != null && t.getEstado().name().equals("en_curso"))
-        .count();
-    long retrasados = tramos.stream()
-        .filter(t -> t.getEstado() != null && t.getEstado().name().equals("retrasado"))
+        .filter(t -> t.getEstado() == Tramo.EstadoTramo.en_curso)
         .count();
 
+    // 🏁 Todos completados = Viaje completado
     if (completados == totalTramos) {
       return "completado";
     }
+
+    // 🚗 Al menos uno en curso = Viaje en curso
     if (enCurso > 0) {
       return "en_curso";
     }
-    if (retrasados == totalTramos) {
-      return "retrasado";
-    }
+
+    // 📊 Al menos uno completado pero ninguno en curso = Viaje en curso
+    // (caso de transición entre tramos)
     if (completados > 0) {
       return "en_curso";
     }
+
+    // ⏸️ Por defecto = Pendiente
     return "pendiente";
   }
 }

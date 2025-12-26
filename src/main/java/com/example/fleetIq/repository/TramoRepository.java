@@ -7,7 +7,6 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
-import java.util.Optional;
 
 @Repository
 public interface TramoRepository extends JpaRepository<Tramo, String> {
@@ -16,21 +15,23 @@ public interface TramoRepository extends JpaRepository<Tramo, String> {
       "JOIN FETCH t.viaje " +
       "JOIN FETCH t.establecimientoOrigen " +
       "JOIN FETCH t.establecimientoDestino " +
-      "WHERE t.viaje.id = :viajeId")
+      "WHERE t.viaje.id = :viajeId " +
+      "ORDER BY t.orden ASC")
   List<Tramo> findByViajeId(@Param("viajeId") String viajeId);
 
   /**
-   * 🆕 Encuentra el tramo activo (pendiente o en_curso) de un vehículo por IMEI
-   * Retorna el tramo con menor orden (el primero pendiente)
+   * Encuentra los tramos activos de un vehículo por IMEI
+   * Solo busca tramos de viajes activos (pendiente o en_curso)
+   * Ordena por fecha de inicio del viaje (más reciente primero) y orden del tramo
    */
-  @Query("SELECT t FROM Tramo t " +
+  @Query("SELECT t FROM Tramo t " + // ⬅️ Simplemente quita el DISTINCT
       "JOIN FETCH t.viaje v " +
       "JOIN FETCH v.vehiculo veh " +
       "JOIN FETCH t.establecimientoOrigen " +
       "JOIN FETCH t.establecimientoDestino " +
       "WHERE veh.imei = :imei " +
+      "AND v.estado IN ('pendiente', 'en_curso') " +
       "AND t.estado IN ('pendiente', 'en_curso') " +
-      "ORDER BY t.orden ASC")
+      "ORDER BY v.fechaInicioProgramada DESC, t.orden ASC")
   List<Tramo> findTramosActivosPorVehiculo(@Param("imei") String imei);
-  // ^^^ Cambiado a List<Tramo> y renombrado para mayor claridad
 }

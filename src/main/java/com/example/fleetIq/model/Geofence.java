@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.CreationTimestamp;
 
@@ -33,9 +34,13 @@ public class Geofence {
     @Column(name = "fecha_creacion", updatable = false)
     @CreationTimestamp
     private LocalDateTime creationDate;
+    @Column(name = "fecha_actualizacion")
+    private LocalDateTime fechaActualizacion;
 
-    // Default constructor
-    public Geofence() {}
+    // Constructor vacío
+    public Geofence() {
+        this.creationDate = LocalDateTime.now();
+    }
 
     // Getters and Setters
     public Long getId() {
@@ -84,5 +89,18 @@ public class Geofence {
 
     public void setCreationDate(LocalDateTime creationDate) {
         this.creationDate = creationDate;
+    }
+
+    public LocalDateTime getFechaActualizacion() {
+        return fechaActualizacion;
+    }
+
+    public void setFechaActualizacion(LocalDateTime fechaActualizacion) {
+        this.fechaActualizacion = fechaActualizacion;
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        this.fechaActualizacion = LocalDateTime.now();
     }
 }

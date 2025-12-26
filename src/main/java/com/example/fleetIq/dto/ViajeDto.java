@@ -100,34 +100,34 @@ public class ViajeDto {
         private LocalDateTime fechaFin;
     }
 
-    @Data
-    public static class TramoDto {
-        private String id;
-        private String viajeId;
-        private Integer orden;
-        private EstablecimientoDto establecimientoOrigen;
-        private EstablecimientoDto establecimientoDestino;
-        private String tipoActividad;
-        private String descripcion;
-        private LocalDateTime horaLlegadaProgramada;
-        private LocalDateTime horaSalidaProgramada;
-        private LocalDateTime horaLlegadaReal;
-        private LocalDateTime horaSalidaReal;
-        private LocalDateTime horaLlegadaRealDestino;
-        private LocalDateTime horaSalidaRealDestino;
-        private String estado;
-        private Integer slaMinutos;
-        private String observaciones;
-        private String eta;
-        private String avance;
-        private Integer tardanzaCita1;
-        private Integer tiempoPermanenciaCita1;
-        private Integer tiempoAtencionCita1;
-        private Integer tardanzaCita2;
-        private Integer tiempoPermanenciaCita2;
-        private Integer tiempoAtencionCita2;
+    // @Data
+    // public static class TramoDto {
+    // private String id;
+    // private String viajeId;
+    // private Integer orden;
+    // private EstablecimientoDto establecimientoOrigen;
+    // private EstablecimientoDto establecimientoDestino;
+    // private String tipoActividad;
+    // private String descripcion;
+    // private LocalDateTime horaLlegadaProgramada;
+    // private LocalDateTime horaSalidaProgramada;
+    // private LocalDateTime horaLlegadaReal;
+    // private LocalDateTime horaSalidaReal;
+    // private LocalDateTime horaLlegadaRealDestino;
+    // private LocalDateTime horaSalidaRealDestino;
+    // private String estado;
+    // private Integer slaMinutos;
+    // private String observaciones;
+    // private String eta;
+    // private String avance;
+    // private Integer tardanzaCita1;
+    // private Integer tiempoPermanenciaCita1;
+    // private Integer tiempoAtencionCita1;
+    // private Integer tardanzaCita2;
+    // private Integer tiempoPermanenciaCita2;
+    // private Integer tiempoAtencionCita2;
 
-    }
+    // }
 
     @Data
     public static class EstablecimientoDto {
