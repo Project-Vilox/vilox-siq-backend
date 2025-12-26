@@ -23,31 +23,31 @@ public class Viaje {
     @Column(name = "contenedor") // Nuevo campo
     private String contenedor;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "empresa_transportista_id")
     private Empresa empresaTransportista;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "empresa_operador_id")
     private Empresa empresaOperador;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "empresa_cliente_id")
     private Empresa empresaCliente;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "vehiculo_id")
     private Vehiculo vehiculo;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "carreta_id")
     private Carreta carreta;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "conductor_id")
     private Conductor conductor;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "empresa_naviera_id")
     private Empresa empresaNaviera;
 
@@ -84,7 +84,7 @@ public class Viaje {
     @Column(name = "fecha_actualizacion")
     private LocalDateTime fechaActualizacion;
 
-    @OneToMany(mappedBy = "viaje", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "viaje", fetch = FetchType.EAGER, cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonManagedReference
     private List<Tramo> tramos = new ArrayList<>();
 }
