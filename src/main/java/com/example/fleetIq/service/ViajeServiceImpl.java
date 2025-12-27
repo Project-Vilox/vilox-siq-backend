@@ -73,6 +73,25 @@ public class ViajeServiceImpl implements ViajeService {
    * ✅ Método TRANSACCIONAL: Solo carga datos de BD
    * Termina la transacción antes de retornar
    */
+  // @Transactional(readOnly = true)
+  // private ViajeDto cargarDatosBasicosTransaccional(String id) {
+  // Viaje viaje = viajeRepository.findByIdWithTramos(id).orElse(null);
+
+  // if (viaje == null) {
+  // return null;
+  // }
+
+  // // Inicializar colecciones lazy dentro de la transacción
+  // if (viaje.getTramos() != null) {
+  // Hibernate.initialize(viaje.getTramos());
+  // viaje.getTramos().forEach(tramo -> {
+  // Hibernate.initialize(tramo.getEstablecimientoOrigen());
+  // Hibernate.initialize(tramo.getEstablecimientoDestino());
+  // });
+  // }
+
+  // return convertToDto(viaje);
+  // }
   @Transactional(readOnly = true)
   private ViajeDto cargarDatosBasicosTransaccional(String id) {
     Viaje viaje = viajeRepository.findByIdWithTramos(id).orElse(null);
@@ -81,13 +100,18 @@ public class ViajeServiceImpl implements ViajeService {
       return null;
     }
 
-    // Inicializar colecciones lazy dentro de la transacción
-    if (viaje.getTramos() != null) {
-      Hibernate.initialize(viaje.getTramos());
-      viaje.getTramos().forEach(tramo -> {
-        Hibernate.initialize(tramo.getEstablecimientoOrigen());
-        Hibernate.initialize(tramo.getEstablecimientoDestino());
-      });
+    // ✅ Inicializar LAZY dentro de la transacción
+    Hibernate.initialize(viaje.getTramos());
+
+    viaje.getTramos().forEach(tramo -> {
+      Hibernate.initialize(tramo.getEstablecimientoOrigen());
+      Hibernate.initialize(tramo.getEstablecimientoDestino());
+    });
+
+    // ✅ Inicializar conductorEmpresas AQUÍ (importante)
+    if (viaje.getConductor() != null) {
+      Hibernate.initialize(viaje.getConductor());
+      Hibernate.initialize(viaje.getConductor().getConductorEmpresas());
     }
 
     return convertToDto(viaje);
@@ -391,6 +415,36 @@ public class ViajeServiceImpl implements ViajeService {
     return dto;
   }
 
+  // private ViajeDto.ConductorDto mapearConductor(Conductor conductor) {
+  // ViajeDto.ConductorDto dto = new ViajeDto.ConductorDto();
+  // dto.setId(conductor.getId());
+  // dto.setDni(conductor.getDni());
+  // dto.setNombre(conductor.getNombre());
+  // dto.setApellidos(conductor.getApellidos());
+  // dto.setTelefono(conductor.getTelefono());
+  // dto.setEmail(conductor.getEmail());
+  // dto.setLicenciaNumero(conductor.getLicenciaNumero());
+  // dto.setLicenciaCategoria(conductor.getLicenciaCategoria());
+  // dto.setLicenciaVencimiento(conductor.getLicenciaVencimiento());
+  // dto.setActivo(conductor.getActivo());
+  // dto.setFechaCreacion(conductor.getFechaCreacion());
+
+  // Hibernate.initialize(conductor.getConductorEmpresas());
+  // if (conductor.getConductorEmpresas() != null &&
+  // !conductor.getConductorEmpresas().isEmpty()) {
+  // dto.setEmpresaId(conductor.getConductorEmpresas().get(0).getEmpresa() != null
+  // ? conductor.getConductorEmpresas().get(0).getEmpresa().getId()
+  // : null);
+  // dto.setFechaInicio(conductor.getConductorEmpresas().get(0).getFechaInicio()
+  // != null
+  // ? conductor.getConductorEmpresas().get(0).getFechaInicio().atStartOfDay()
+  // : null);
+  // dto.setFechaFin(conductor.getConductorEmpresas().get(0).getFechaFin() != null
+  // ? conductor.getConductorEmpresas().get(0).getFechaFin().atStartOfDay()
+  // : null);
+  // }
+  // return dto;
+  // }
   private ViajeDto.ConductorDto mapearConductor(Conductor conductor) {
     ViajeDto.ConductorDto dto = new ViajeDto.ConductorDto();
     dto.setId(conductor.getId());
@@ -405,18 +459,24 @@ public class ViajeServiceImpl implements ViajeService {
     dto.setActivo(conductor.getActivo());
     dto.setFechaCreacion(conductor.getFechaCreacion());
 
-    Hibernate.initialize(conductor.getConductorEmpresas());
+    // 👇 SOLO leer, asumir que ya está inicializado
     if (conductor.getConductorEmpresas() != null && !conductor.getConductorEmpresas().isEmpty()) {
-      dto.setEmpresaId(conductor.getConductorEmpresas().get(0).getEmpresa() != null
-          ? conductor.getConductorEmpresas().get(0).getEmpresa().getId()
-          : null);
-      dto.setFechaInicio(conductor.getConductorEmpresas().get(0).getFechaInicio() != null
-          ? conductor.getConductorEmpresas().get(0).getFechaInicio().atStartOfDay()
-          : null);
-      dto.setFechaFin(conductor.getConductorEmpresas().get(0).getFechaFin() != null
-          ? conductor.getConductorEmpresas().get(0).getFechaFin().atStartOfDay()
-          : null);
+      var ce = conductor.getConductorEmpresas().get(0);
+
+      if (ce.getEmpresa() != null) {
+        dto.setEmpresaId(ce.getEmpresa().getId());
+      }
+
+      if (ce.getFechaInicio() != null) {
+        dto.setFechaInicio(ce.getFechaInicio().atStartOfDay());
+      }
+
+      if (ce.getFechaFin() != null) {
+        dto.setFechaFin(ce.getFechaFin().atStartOfDay());
+      }
     }
+
     return dto;
   }
+
 }
