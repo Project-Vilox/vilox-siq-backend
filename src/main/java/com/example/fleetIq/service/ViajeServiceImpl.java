@@ -36,7 +36,7 @@ public class ViajeServiceImpl implements ViajeService {
   private TrackRepository trackRepository;
 
   // ════════════════════════════════════════════════════════════════════════════
-  // 🔧 MÉTODO PRINCIPAL - SIN @Transactional
+  // 🔧 MÉTODO PRINCIPAL - OPTIMIZADO CON DOS QUERIES
   // ════════════════════════════════════════════════════════════════════════════
 
   @Override
@@ -71,25 +71,42 @@ public class ViajeServiceImpl implements ViajeService {
   }
 
   /**
-   * ✅ Método TRANSACCIONAL OPTIMIZADO - USA JOIN FETCH
-   * Carga TODAS las relaciones en UNA SOLA QUERY
+   * ✅ SOLUCIÓN AL MULTIPLE BAG FETCH EXCEPTION
+   * Carga las relaciones en DOS pasos para evitar el error:
+   * PASO 1: Carga tramos y sus relaciones
+   * PASO 2: Carga conductorEmpresas
    */
   @Transactional(readOnly = true, timeout = 120, isolation = Isolation.READ_COMMITTED)
   private ViajeDto cargarDatosBasicosTransaccional(String id) {
     System.out.println("🚀 [OPTIMIZADO] Iniciando carga de viaje: " + id);
     long startTime = System.currentTimeMillis();
 
-    // ✅ USA EL NUEVO QUERY QUE CARGA TODO EN UNA SOLA CONSULTA
-    Viaje viaje = viajeRepository.findByIdWithAllRelations(id).orElse(null);
+    // ✅ PASO 1: Cargar viaje con TRAMOS (primera colección)
+    Viaje viaje = viajeRepository.findByIdWithTramos(id).orElse(null);
 
     if (viaje == null) {
       System.out.println("❌ Viaje no encontrado: " + id);
       return null;
     }
 
-    long queryTime = System.currentTimeMillis() - startTime;
-    System.out.println("⚡ Query optimizado completado en: " + queryTime + "ms");
-    System.out.println("✅ TODAS las relaciones cargadas con JOIN FETCH");
+    long paso1Time = System.currentTimeMillis() - startTime;
+    System.out.println("✅ PASO 1 completado en: " + paso1Time + "ms (Tramos cargados)");
+
+    // ✅ PASO 2: Cargar conductorEmpresas (segunda colección)
+    // Esto se hace en una query separada para evitar MultipleBagFetchException
+    if (viaje.getConductor() != null) {
+      viajeRepository.findByIdWithConductorEmpresas(id).ifPresent(v -> {
+        if (v.getConductor() != null && v.getConductor().getConductorEmpresas() != null) {
+          // Forzar inicialización de la colección
+          Hibernate.initialize(v.getConductor().getConductorEmpresas());
+          // Copiar la colección inicializada al objeto original
+          viaje.getConductor().setConductorEmpresas(v.getConductor().getConductorEmpresas());
+        }
+      });
+    }
+
+    long paso2Time = System.currentTimeMillis() - startTime - paso1Time;
+    System.out.println("✅ PASO 2 completado en: " + paso2Time + "ms (ConductorEmpresas cargadas)");
 
     // Verificación de datos cargados
     if (viaje.getConductor() != null) {
@@ -115,7 +132,6 @@ public class ViajeServiceImpl implements ViajeService {
 
   /**
    * ✅ Método SIN TRANSACCIÓN: Enriquece con cálculos externos
-   * NO tiene @Transactional, por lo que no hay contexto transaccional activo
    */
   private void enriquecerTramosConCalculos(ViajeDto dto, String viajeId) {
     System.out.println("📊 Procesando " + dto.getTramos().size() + " tramos para cálculos...");
@@ -278,7 +294,6 @@ public class ViajeServiceImpl implements ViajeService {
           .map(tramo -> {
             TramoDto tDto = tramoService.convertToDto(tramo);
 
-            // MAPEO DE ORIGEN
             if (tramo.getEstablecimientoOrigen() != null) {
               Establecimiento est = tramo.getEstablecimientoOrigen();
               EstablecimientoDto eDto = new EstablecimientoDto(
@@ -289,7 +304,6 @@ public class ViajeServiceImpl implements ViajeService {
               tDto.setEstablecimientoOrigen(eDto);
             }
 
-            // MAPEO DE DESTINO
             if (tramo.getEstablecimientoDestino() != null) {
               Establecimiento estDest = tramo.getEstablecimientoDestino();
               EstablecimientoDto eDtoDest = new EstablecimientoDto(
@@ -373,9 +387,6 @@ public class ViajeServiceImpl implements ViajeService {
     return dto;
   }
 
-  /**
-   * ✅ MAPEO SIMPLIFICADO: Todo ya está cargado por JOIN FETCH
-   */
   private ViajeDto.ConductorDto mapearConductor(Conductor conductor) {
     ViajeDto.ConductorDto dto = new ViajeDto.ConductorDto();
     dto.setId(conductor.getId());
@@ -390,7 +401,7 @@ public class ViajeServiceImpl implements ViajeService {
     dto.setActivo(conductor.getActivo());
     dto.setFechaCreacion(conductor.getFechaCreacion());
 
-    // ✅ SIMPLE: Los datos ya están cargados gracias a JOIN FETCH
+    // ✅ Los datos ya están cargados por el segundo query
     if (conductor.getConductorEmpresas() != null && !conductor.getConductorEmpresas().isEmpty()) {
       var ce = conductor.getConductorEmpresas().get(0);
 
