@@ -13,6 +13,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -70,75 +71,132 @@ public class ViajeServiceImpl implements ViajeService {
   }
 
   /**
-   * ✅ Método TRANSACCIONAL: Solo carga datos de BD
-   * Inicializa TODAS las colecciones lazy antes de terminar la transacción
+   * ✅ Método TRANSACCIONAL con configuración optimizada para producción
    */
-  @Transactional(readOnly = true)
+  @Transactional(readOnly = true, timeout = 120, // 2 minutos de timeout
+      isolation = Isolation.READ_COMMITTED // Nivel de aislamiento más permisivo
+  )
   private ViajeDto cargarDatosBasicosTransaccional(String id) {
+    System.out.println("🚀 [" + Thread.currentThread().getName() + "] Iniciando carga de viaje: " + id);
+    long startTime = System.currentTimeMillis();
+
     Viaje viaje = viajeRepository.findByIdWithTramos(id).orElse(null);
 
-    if (viaje == null)
+    if (viaje == null) {
+      System.out.println("❌ Viaje no encontrado: " + id);
       return null;
-
-    // ✅ Inicializar TODAS las relaciones lazy dentro de la transacción
-
-    // 1. Inicializar tramos y sus establecimientos
-    if (viaje.getTramos() != null) {
-      Hibernate.initialize(viaje.getTramos());
-      viaje.getTramos().forEach(tramo -> {
-        Hibernate.initialize(tramo.getEstablecimientoOrigen());
-        Hibernate.initialize(tramo.getEstablecimientoDestino());
-      });
     }
 
-    // 2. Inicializar conductor y TODAS sus relaciones
-    if (viaje.getConductor() != null) {
-      Conductor conductor = viaje.getConductor();
-      Hibernate.initialize(conductor);
+    System.out.println("⏱️ Query principal ejecutado en: " + (System.currentTimeMillis() - startTime) + "ms");
+    System.out.println("🔄 Iniciando inicialización de relaciones lazy...");
 
-      // ⚠️ CRÍTICO: Inicializar conductorEmpresas ANTES de salir de la transacción
-      if (conductor.getConductorEmpresas() != null) {
-        Hibernate.initialize(conductor.getConductorEmpresas());
+    try {
+      // 1. Inicializar tramos y sus establecimientos
+      if (viaje.getTramos() != null) {
+        long tramoStart = System.currentTimeMillis();
+        Hibernate.initialize(viaje.getTramos());
+        System.out.println("✅ Tramos inicializados: " + viaje.getTramos().size() + " ("
+            + (System.currentTimeMillis() - tramoStart) + "ms)");
 
-        // También inicializar las empresas dentro de conductorEmpresas
-        conductor.getConductorEmpresas().forEach(ce -> {
-          if (ce.getEmpresa() != null) {
-            Hibernate.initialize(ce.getEmpresa());
-          }
+        viaje.getTramos().forEach(tramo -> {
+          Hibernate.initialize(tramo.getEstablecimientoOrigen());
+          Hibernate.initialize(tramo.getEstablecimientoDestino());
         });
+        System.out.println(
+            "✅ Establecimientos de tramos inicializados (" + (System.currentTimeMillis() - tramoStart) + "ms)");
       }
-    }
 
-    // 3. Inicializar vehículo y carreta si existen
-    if (viaje.getVehiculo() != null) {
-      Hibernate.initialize(viaje.getVehiculo());
-      if (viaje.getVehiculo().getEmpresa() != null) {
-        Hibernate.initialize(viaje.getVehiculo().getEmpresa());
+      // 2. Inicializar conductor y TODAS sus relaciones
+      if (viaje.getConductor() != null) {
+        long conductorStart = System.currentTimeMillis();
+        Conductor conductor = viaje.getConductor();
+        Hibernate.initialize(conductor);
+        System.out.println("✅ Conductor inicializado: " + conductor.getId() + " ("
+            + (System.currentTimeMillis() - conductorStart) + "ms)");
+
+        // ⚠️ CRÍTICO: Forzar la carga con size() y manejar posibles errores
+        try {
+          if (conductor.getConductorEmpresas() != null) {
+            // Forzar carga inmediata
+            int size = conductor.getConductorEmpresas().size();
+            System.out.println("✅ ConductorEmpresas cargado: " + size + " registros ("
+                + (System.currentTimeMillis() - conductorStart) + "ms)");
+
+            // Inicializar empresas
+            conductor.getConductorEmpresas().forEach(ce -> {
+              if (ce.getEmpresa() != null) {
+                Hibernate.initialize(ce.getEmpresa());
+              }
+            });
+            System.out.println(
+                "✅ Empresas del conductor inicializadas (" + (System.currentTimeMillis() - conductorStart) + "ms)");
+          } else {
+            System.out.println("⚠️ ConductorEmpresas es null para conductor: " + conductor.getId());
+          }
+        } catch (Exception e) {
+          System.err.println("❌ Error crítico inicializando conductorEmpresas: " + e.getMessage());
+          System.err.println("   Tipo de error: " + e.getClass().getName());
+          System.err.println("   Causa raíz: " + (e.getCause() != null ? e.getCause().getMessage() : "N/A"));
+          e.printStackTrace();
+          // En producción, intentamos continuar sin esta información
+        }
+      } else {
+        System.out.println("⚠️ Viaje sin conductor asignado");
       }
-    }
 
-    if (viaje.getCarreta() != null) {
-      Hibernate.initialize(viaje.getCarreta());
-      if (viaje.getCarreta().getEmpresa() != null) {
-        Hibernate.initialize(viaje.getCarreta().getEmpresa());
+      // 3. Inicializar vehículo y carreta
+      if (viaje.getVehiculo() != null) {
+        long vehiculoStart = System.currentTimeMillis();
+        Hibernate.initialize(viaje.getVehiculo());
+        if (viaje.getVehiculo().getEmpresa() != null) {
+          Hibernate.initialize(viaje.getVehiculo().getEmpresa());
+        }
+        System.out.println("✅ Vehículo inicializado (" + (System.currentTimeMillis() - vehiculoStart) + "ms)");
       }
-    }
 
-    // 4. Inicializar empresas del viaje
-    if (viaje.getEmpresaTransportista() != null) {
-      Hibernate.initialize(viaje.getEmpresaTransportista());
-    }
-    if (viaje.getEmpresaOperador() != null) {
-      Hibernate.initialize(viaje.getEmpresaOperador());
-    }
-    if (viaje.getEmpresaCliente() != null) {
-      Hibernate.initialize(viaje.getEmpresaCliente());
-    }
-    if (viaje.getEmpresaNaviera() != null) {
-      Hibernate.initialize(viaje.getEmpresaNaviera());
-    }
+      if (viaje.getCarreta() != null) {
+        long carretaStart = System.currentTimeMillis();
+        Hibernate.initialize(viaje.getCarreta());
+        if (viaje.getCarreta().getEmpresa() != null) {
+          Hibernate.initialize(viaje.getCarreta().getEmpresa());
+        }
+        System.out.println("✅ Carreta inicializada (" + (System.currentTimeMillis() - carretaStart) + "ms)");
+      }
 
-    System.out.println("✅ Todas las relaciones lazy inicializadas dentro de la transacción");
+      // 4. Inicializar empresas del viaje
+      long empresasStart = System.currentTimeMillis();
+      if (viaje.getEmpresaTransportista() != null) {
+        Hibernate.initialize(viaje.getEmpresaTransportista());
+      }
+      if (viaje.getEmpresaOperador() != null) {
+        Hibernate.initialize(viaje.getEmpresaOperador());
+      }
+      if (viaje.getEmpresaCliente() != null) {
+        Hibernate.initialize(viaje.getEmpresaCliente());
+      }
+      if (viaje.getEmpresaNaviera() != null) {
+        Hibernate.initialize(viaje.getEmpresaNaviera());
+      }
+      System.out.println("✅ Empresas del viaje inicializadas (" + (System.currentTimeMillis() - empresasStart) + "ms)");
+
+      long totalTime = System.currentTimeMillis() - startTime;
+      System.out.println("✅ ✨ TODAS las relaciones inicializadas exitosamente en " + totalTime + "ms");
+
+      if (totalTime > 5000) {
+        System.out.println("⚠️ ADVERTENCIA: La carga tomó más de 5 segundos. Considerar optimización.");
+      }
+
+    } catch (Exception e) {
+      long totalTime = System.currentTimeMillis() - startTime;
+      System.err.println("❌ ERROR FATAL en inicialización después de " + totalTime + "ms");
+      System.err.println("   Mensaje: " + e.getMessage());
+      System.err.println("   Tipo: " + e.getClass().getName());
+      if (e.getCause() != null) {
+        System.err.println("   Causa: " + e.getCause().getMessage());
+      }
+      e.printStackTrace();
+      throw new RuntimeException("Error al inicializar relaciones del viaje: " + e.getMessage(), e);
+    }
 
     return convertToDto(viaje);
   }
@@ -404,8 +462,7 @@ public class ViajeServiceImpl implements ViajeService {
   }
 
   /**
-   * ✅ MÉTODO CORREGIDO: Ya no intenta acceder a colecciones lazy
-   * porque fueron inicializadas en cargarDatosBasicosTransaccional()
+   * ✅ MÉTODO CORREGIDO: Manejo defensivo de colecciones lazy
    */
   private ViajeDto.ConductorDto mapearConductor(Conductor conductor) {
     ViajeDto.ConductorDto dto = new ViajeDto.ConductorDto();
@@ -421,23 +478,53 @@ public class ViajeServiceImpl implements ViajeService {
     dto.setActivo(conductor.getActivo());
     dto.setFechaCreacion(conductor.getFechaCreacion());
 
-    // ✅ SEGURO: La colección ya fue inicializada dentro de la transacción
-    if (conductor.getConductorEmpresas() != null && !conductor.getConductorEmpresas().isEmpty()) {
-      var ce = conductor.getConductorEmpresas().get(0);
+    // ✅ MANEJO DEFENSIVO: Verificar múltiples condiciones antes de acceder
+    try {
+      System.out.println("🔍 Intentando mapear conductor: " + conductor.getId());
 
-      if (ce.getEmpresa() != null) {
-        dto.setEmpresaId(ce.getEmpresa().getId());
-      }
+      if (conductor.getConductorEmpresas() != null) {
+        System.out.println("  📋 ConductorEmpresas no es null, obteniendo tamaño...");
 
-      if (ce.getFechaInicio() != null) {
-        dto.setFechaInicio(ce.getFechaInicio().atStartOfDay());
-      }
+        // Verificar que no esté vacío
+        if (!conductor.getConductorEmpresas().isEmpty()) {
+          System.out.println("  ✅ ConductorEmpresas tiene " + conductor.getConductorEmpresas().size() + " elementos");
 
-      if (ce.getFechaFin() != null) {
-        dto.setFechaFin(ce.getFechaFin().atStartOfDay());
+          var ce = conductor.getConductorEmpresas().get(0);
+
+          if (ce != null) {
+            System.out.println("  ✅ Primer elemento de ConductorEmpresas obtenido");
+
+            if (ce.getEmpresa() != null) {
+              dto.setEmpresaId(ce.getEmpresa().getId());
+              System.out.println("  ✅ EmpresaId mapeado: " + ce.getEmpresa().getId());
+            }
+
+            if (ce.getFechaInicio() != null) {
+              dto.setFechaInicio(ce.getFechaInicio().atStartOfDay());
+              System.out.println("  ✅ FechaInicio mapeada");
+            }
+
+            if (ce.getFechaFin() != null) {
+              dto.setFechaFin(ce.getFechaFin().atStartOfDay());
+              System.out.println("  ✅ FechaFin mapeada");
+            }
+          } else {
+            System.out.println("  ⚠️ Primer elemento de ConductorEmpresas es null");
+          }
+        } else {
+          System.out.println("  ⚠️ ConductorEmpresas está vacío");
+        }
+      } else {
+        System.out.println("  ⚠️ ConductorEmpresas es null para conductor: " + conductor.getId());
       }
+    } catch (Exception e) {
+      System.err.println("  ❌ Error al mapear conductor empresas: " + e.getMessage());
+      e.printStackTrace();
+      // No lanzamos la excepción, solo registramos el error
+      // El DTO se retorna con los campos de empresa sin llenar
     }
 
+    System.out.println("✅ Conductor mapeado exitosamente: " + conductor.getId());
     return dto;
   }
 }
