@@ -96,22 +96,26 @@ public class ViajeServiceImpl implements ViajeService {
   private ViajeDto cargarDatosBasicosTransaccional(String id) {
     Viaje viaje = viajeRepository.findByIdWithTramos(id).orElse(null);
 
-    if (viaje == null) {
+    if (viaje == null)
       return null;
+
+    // Inicializar tramos y establecimientos
+    if (viaje.getTramos() != null) {
+      Hibernate.initialize(viaje.getTramos());
+      viaje.getTramos().forEach(tramo -> {
+        Hibernate.initialize(tramo.getEstablecimientoOrigen());
+        Hibernate.initialize(tramo.getEstablecimientoDestino());
+      });
     }
 
-    // ✅ Inicializar LAZY dentro de la transacción
-    Hibernate.initialize(viaje.getTramos());
-
-    viaje.getTramos().forEach(tramo -> {
-      Hibernate.initialize(tramo.getEstablecimientoOrigen());
-      Hibernate.initialize(tramo.getEstablecimientoDestino());
-    });
-
-    // ✅ Inicializar conductorEmpresas AQUÍ (importante)
+    // Inicializar conductor y sus empresas
     if (viaje.getConductor() != null) {
       Hibernate.initialize(viaje.getConductor());
       Hibernate.initialize(viaje.getConductor().getConductorEmpresas());
+      // Opcional: inicializar empresa dentro de conductorEmpresas
+      viaje.getConductor().getConductorEmpresas().forEach(ce -> {
+        Hibernate.initialize(ce.getEmpresa());
+      });
     }
 
     return convertToDto(viaje);
