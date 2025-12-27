@@ -71,27 +71,8 @@ public class ViajeServiceImpl implements ViajeService {
 
   /**
    * ✅ Método TRANSACCIONAL: Solo carga datos de BD
-   * Termina la transacción antes de retornar
+   * Inicializa TODAS las colecciones lazy antes de terminar la transacción
    */
-  // @Transactional(readOnly = true)
-  // private ViajeDto cargarDatosBasicosTransaccional(String id) {
-  // Viaje viaje = viajeRepository.findByIdWithTramos(id).orElse(null);
-
-  // if (viaje == null) {
-  // return null;
-  // }
-
-  // // Inicializar colecciones lazy dentro de la transacción
-  // if (viaje.getTramos() != null) {
-  // Hibernate.initialize(viaje.getTramos());
-  // viaje.getTramos().forEach(tramo -> {
-  // Hibernate.initialize(tramo.getEstablecimientoOrigen());
-  // Hibernate.initialize(tramo.getEstablecimientoDestino());
-  // });
-  // }
-
-  // return convertToDto(viaje);
-  // }
   @Transactional(readOnly = true)
   private ViajeDto cargarDatosBasicosTransaccional(String id) {
     Viaje viaje = viajeRepository.findByIdWithTramos(id).orElse(null);
@@ -99,7 +80,9 @@ public class ViajeServiceImpl implements ViajeService {
     if (viaje == null)
       return null;
 
-    // Inicializar tramos y establecimientos
+    // ✅ Inicializar TODAS las relaciones lazy dentro de la transacción
+
+    // 1. Inicializar tramos y sus establecimientos
     if (viaje.getTramos() != null) {
       Hibernate.initialize(viaje.getTramos());
       viaje.getTramos().forEach(tramo -> {
@@ -108,15 +91,54 @@ public class ViajeServiceImpl implements ViajeService {
       });
     }
 
-    // Inicializar conductor y sus empresas
+    // 2. Inicializar conductor y TODAS sus relaciones
     if (viaje.getConductor() != null) {
-      Hibernate.initialize(viaje.getConductor());
-      Hibernate.initialize(viaje.getConductor().getConductorEmpresas());
-      // Opcional: inicializar empresa dentro de conductorEmpresas
-      viaje.getConductor().getConductorEmpresas().forEach(ce -> {
-        Hibernate.initialize(ce.getEmpresa());
-      });
+      Conductor conductor = viaje.getConductor();
+      Hibernate.initialize(conductor);
+
+      // ⚠️ CRÍTICO: Inicializar conductorEmpresas ANTES de salir de la transacción
+      if (conductor.getConductorEmpresas() != null) {
+        Hibernate.initialize(conductor.getConductorEmpresas());
+
+        // También inicializar las empresas dentro de conductorEmpresas
+        conductor.getConductorEmpresas().forEach(ce -> {
+          if (ce.getEmpresa() != null) {
+            Hibernate.initialize(ce.getEmpresa());
+          }
+        });
+      }
     }
+
+    // 3. Inicializar vehículo y carreta si existen
+    if (viaje.getVehiculo() != null) {
+      Hibernate.initialize(viaje.getVehiculo());
+      if (viaje.getVehiculo().getEmpresa() != null) {
+        Hibernate.initialize(viaje.getVehiculo().getEmpresa());
+      }
+    }
+
+    if (viaje.getCarreta() != null) {
+      Hibernate.initialize(viaje.getCarreta());
+      if (viaje.getCarreta().getEmpresa() != null) {
+        Hibernate.initialize(viaje.getCarreta().getEmpresa());
+      }
+    }
+
+    // 4. Inicializar empresas del viaje
+    if (viaje.getEmpresaTransportista() != null) {
+      Hibernate.initialize(viaje.getEmpresaTransportista());
+    }
+    if (viaje.getEmpresaOperador() != null) {
+      Hibernate.initialize(viaje.getEmpresaOperador());
+    }
+    if (viaje.getEmpresaCliente() != null) {
+      Hibernate.initialize(viaje.getEmpresaCliente());
+    }
+    if (viaje.getEmpresaNaviera() != null) {
+      Hibernate.initialize(viaje.getEmpresaNaviera());
+    }
+
+    System.out.println("✅ Todas las relaciones lazy inicializadas dentro de la transacción");
 
     return convertToDto(viaje);
   }
@@ -125,36 +147,6 @@ public class ViajeServiceImpl implements ViajeService {
    * ✅ Método SIN TRANSACCIÓN: Enriquece con cálculos externos
    * NO tiene @Transactional, por lo que no hay contexto transaccional activo
    */
-  // private void enriquecerTramosConCalculos(ViajeDto dto, String viajeId) {
-  // System.out.println("📊 Procesando " + dto.getTramos().size() + " tramos para
-  // cálculos...");
-
-  // // Cargar tramos frescos para los cálculos (con nueva transacción)
-  // List<Tramo> tramosParaCalculo = cargarTramosParaCalculo(viajeId);
-
-  // // Procesar cada tramo
-  // for (int i = 0; i < dto.getTramos().size(); i++) {
-  // try {
-  // TramoDto tramoDto = dto.getTramos().get(i);
-  // Tramo tramo = tramosParaCalculo.stream()
-  // .filter(t -> t.getId().equals(tramoDto.getId()))
-  // .findFirst()
-  // .orElse(null);
-
-  // if (tramo != null) {
-  // System.out.println(" 🔄 Calculando ETA/Avance para tramo " + (i + 1) + "/" +
-  // dto.getTramos().size());
-  // tramoService.enriquecerConEtaYAvance(tramoDto, tramo);
-  // System.out.println(" ✅ Tramo " + (i + 1) + " procesado");
-  // } else {
-  // System.out.println(" ⚠️ Tramo " + (i + 1) + " no encontrado para cálculos");
-  // }
-  // } catch (Exception e) {
-  // System.err.println(" ⚠️ Error en tramo " + (i + 1) + ": " + e.getMessage());
-  // // Continuar con los demás tramos
-  // }
-  // }
-  // }
   private void enriquecerTramosConCalculos(ViajeDto dto, String viajeId) {
     System.out.println("📊 Procesando " + dto.getTramos().size() + " tramos para cálculos...");
 
@@ -172,7 +164,7 @@ public class ViajeServiceImpl implements ViajeService {
           } else {
             tramoDto.setAvance(0.0);
           }
-          continue; // Saltamos al siguiente tramo sin entrar al service pesado
+          continue;
         }
 
         Tramo tramo = tramosParaCalculo.stream()
@@ -181,11 +173,11 @@ public class ViajeServiceImpl implements ViajeService {
             .orElse(null);
 
         if (tramo != null) {
-          System.out.println("   🔄 Calculando ETA/Avance REAL para tramo activo " + (i + 1));
+          System.out.println("   🔄 Calculando ETA/Avance REAL para tramo activo " + (i + 1));
           tramoService.enriquecerConEtaYAvance(tramoDto, tramo);
         }
       } catch (Exception e) {
-        System.err.println("   ⚠️ Error en tramo " + (i + 1) + ": " + e.getMessage());
+        System.err.println("   ⚠️ Error en tramo " + (i + 1) + ": " + e.getMessage());
       }
     }
   }
@@ -198,7 +190,6 @@ public class ViajeServiceImpl implements ViajeService {
     return viajeRepository.findByIdWithTramos(viajeId)
         .map(viaje -> {
           List<Tramo> tramos = viaje.getTramos();
-          // Inicializar todo lo necesario dentro de la transacción
           tramos.forEach(tramo -> {
             Hibernate.initialize(tramo.getViaje());
             Hibernate.initialize(tramo.getViaje().getVehiculo());
@@ -312,11 +303,6 @@ public class ViajeServiceImpl implements ViajeService {
       dto.setConductor(mapearConductor(viaje.getConductor()));
     }
 
-    // if (viaje.getTramos() != null) {
-    // dto.setTramos(viaje.getTramos().stream()
-    // .map(tramoService::convertToDto)
-    // .collect(Collectors.toList()));
-    // }
     if (viaje.getTramos() != null) {
       dto.setTramos(viaje.getTramos().stream()
           .map(tramo -> {
@@ -325,8 +311,6 @@ public class ViajeServiceImpl implements ViajeService {
             // MAPEO DE ORIGEN
             if (tramo.getEstablecimientoOrigen() != null) {
               Establecimiento est = tramo.getEstablecimientoOrigen();
-              // Creamos tu DTO con los datos de la entidad (incluyendo las lat/long que
-              // guardaste)
               EstablecimientoDto eDto = new EstablecimientoDto(
                   est.getId(), est.getEmpresaId(),
                   est.getNombre(), est.getTipo(), est.getDireccion(),
@@ -419,36 +403,10 @@ public class ViajeServiceImpl implements ViajeService {
     return dto;
   }
 
-  // private ViajeDto.ConductorDto mapearConductor(Conductor conductor) {
-  // ViajeDto.ConductorDto dto = new ViajeDto.ConductorDto();
-  // dto.setId(conductor.getId());
-  // dto.setDni(conductor.getDni());
-  // dto.setNombre(conductor.getNombre());
-  // dto.setApellidos(conductor.getApellidos());
-  // dto.setTelefono(conductor.getTelefono());
-  // dto.setEmail(conductor.getEmail());
-  // dto.setLicenciaNumero(conductor.getLicenciaNumero());
-  // dto.setLicenciaCategoria(conductor.getLicenciaCategoria());
-  // dto.setLicenciaVencimiento(conductor.getLicenciaVencimiento());
-  // dto.setActivo(conductor.getActivo());
-  // dto.setFechaCreacion(conductor.getFechaCreacion());
-
-  // Hibernate.initialize(conductor.getConductorEmpresas());
-  // if (conductor.getConductorEmpresas() != null &&
-  // !conductor.getConductorEmpresas().isEmpty()) {
-  // dto.setEmpresaId(conductor.getConductorEmpresas().get(0).getEmpresa() != null
-  // ? conductor.getConductorEmpresas().get(0).getEmpresa().getId()
-  // : null);
-  // dto.setFechaInicio(conductor.getConductorEmpresas().get(0).getFechaInicio()
-  // != null
-  // ? conductor.getConductorEmpresas().get(0).getFechaInicio().atStartOfDay()
-  // : null);
-  // dto.setFechaFin(conductor.getConductorEmpresas().get(0).getFechaFin() != null
-  // ? conductor.getConductorEmpresas().get(0).getFechaFin().atStartOfDay()
-  // : null);
-  // }
-  // return dto;
-  // }
+  /**
+   * ✅ MÉTODO CORREGIDO: Ya no intenta acceder a colecciones lazy
+   * porque fueron inicializadas en cargarDatosBasicosTransaccional()
+   */
   private ViajeDto.ConductorDto mapearConductor(Conductor conductor) {
     ViajeDto.ConductorDto dto = new ViajeDto.ConductorDto();
     dto.setId(conductor.getId());
@@ -463,7 +421,7 @@ public class ViajeServiceImpl implements ViajeService {
     dto.setActivo(conductor.getActivo());
     dto.setFechaCreacion(conductor.getFechaCreacion());
 
-    // 👇 SOLO leer, asumir que ya está inicializado
+    // ✅ SEGURO: La colección ya fue inicializada dentro de la transacción
     if (conductor.getConductorEmpresas() != null && !conductor.getConductorEmpresas().isEmpty()) {
       var ce = conductor.getConductorEmpresas().get(0);
 
@@ -482,5 +440,4 @@ public class ViajeServiceImpl implements ViajeService {
 
     return dto;
   }
-
 }
