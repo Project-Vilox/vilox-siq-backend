@@ -71,131 +71,43 @@ public class ViajeServiceImpl implements ViajeService {
   }
 
   /**
-   * ✅ Método TRANSACCIONAL con configuración optimizada para producción
+   * ✅ Método TRANSACCIONAL OPTIMIZADO - USA JOIN FETCH
+   * Carga TODAS las relaciones en UNA SOLA QUERY
    */
-  @Transactional(readOnly = true, timeout = 120, // 2 minutos de timeout
-      isolation = Isolation.READ_COMMITTED // Nivel de aislamiento más permisivo
-  )
+  @Transactional(readOnly = true, timeout = 120, isolation = Isolation.READ_COMMITTED)
   private ViajeDto cargarDatosBasicosTransaccional(String id) {
-    System.out.println("🚀 [" + Thread.currentThread().getName() + "] Iniciando carga de viaje: " + id);
+    System.out.println("🚀 [OPTIMIZADO] Iniciando carga de viaje: " + id);
     long startTime = System.currentTimeMillis();
 
-    Viaje viaje = viajeRepository.findByIdWithTramos(id).orElse(null);
+    // ✅ USA EL NUEVO QUERY QUE CARGA TODO EN UNA SOLA CONSULTA
+    Viaje viaje = viajeRepository.findByIdWithAllRelations(id).orElse(null);
 
     if (viaje == null) {
       System.out.println("❌ Viaje no encontrado: " + id);
       return null;
     }
 
-    System.out.println("⏱️ Query principal ejecutado en: " + (System.currentTimeMillis() - startTime) + "ms");
-    System.out.println("🔄 Iniciando inicialización de relaciones lazy...");
+    long queryTime = System.currentTimeMillis() - startTime;
+    System.out.println("⚡ Query optimizado completado en: " + queryTime + "ms");
+    System.out.println("✅ TODAS las relaciones cargadas con JOIN FETCH");
 
-    try {
-      // 1. Inicializar tramos y sus establecimientos
-      if (viaje.getTramos() != null) {
-        long tramoStart = System.currentTimeMillis();
-        Hibernate.initialize(viaje.getTramos());
-        System.out.println("✅ Tramos inicializados: " + viaje.getTramos().size() + " ("
-            + (System.currentTimeMillis() - tramoStart) + "ms)");
-
-        viaje.getTramos().forEach(tramo -> {
-          Hibernate.initialize(tramo.getEstablecimientoOrigen());
-          Hibernate.initialize(tramo.getEstablecimientoDestino());
-        });
-        System.out.println(
-            "✅ Establecimientos de tramos inicializados (" + (System.currentTimeMillis() - tramoStart) + "ms)");
+    // Verificación de datos cargados
+    if (viaje.getConductor() != null) {
+      System.out.println("✅ Conductor: " + viaje.getConductor().getId());
+      if (viaje.getConductor().getConductorEmpresas() != null) {
+        System.out.println("✅ ConductorEmpresas: " + viaje.getConductor().getConductorEmpresas().size() + " registros");
       }
+    }
 
-      // 2. Inicializar conductor y TODAS sus relaciones
-      if (viaje.getConductor() != null) {
-        long conductorStart = System.currentTimeMillis();
-        Conductor conductor = viaje.getConductor();
-        Hibernate.initialize(conductor);
-        System.out.println("✅ Conductor inicializado: " + conductor.getId() + " ("
-            + (System.currentTimeMillis() - conductorStart) + "ms)");
+    if (viaje.getTramos() != null) {
+      System.out.println("✅ Tramos: " + viaje.getTramos().size());
+    }
 
-        // ⚠️ CRÍTICO: Forzar la carga con size() y manejar posibles errores
-        try {
-          if (conductor.getConductorEmpresas() != null) {
-            // Forzar carga inmediata
-            int size = conductor.getConductorEmpresas().size();
-            System.out.println("✅ ConductorEmpresas cargado: " + size + " registros ("
-                + (System.currentTimeMillis() - conductorStart) + "ms)");
+    long totalTime = System.currentTimeMillis() - startTime;
+    System.out.println("✨ Carga completa en: " + totalTime + "ms");
 
-            // Inicializar empresas
-            conductor.getConductorEmpresas().forEach(ce -> {
-              if (ce.getEmpresa() != null) {
-                Hibernate.initialize(ce.getEmpresa());
-              }
-            });
-            System.out.println(
-                "✅ Empresas del conductor inicializadas (" + (System.currentTimeMillis() - conductorStart) + "ms)");
-          } else {
-            System.out.println("⚠️ ConductorEmpresas es null para conductor: " + conductor.getId());
-          }
-        } catch (Exception e) {
-          System.err.println("❌ Error crítico inicializando conductorEmpresas: " + e.getMessage());
-          System.err.println("   Tipo de error: " + e.getClass().getName());
-          System.err.println("   Causa raíz: " + (e.getCause() != null ? e.getCause().getMessage() : "N/A"));
-          e.printStackTrace();
-          // En producción, intentamos continuar sin esta información
-        }
-      } else {
-        System.out.println("⚠️ Viaje sin conductor asignado");
-      }
-
-      // 3. Inicializar vehículo y carreta
-      if (viaje.getVehiculo() != null) {
-        long vehiculoStart = System.currentTimeMillis();
-        Hibernate.initialize(viaje.getVehiculo());
-        if (viaje.getVehiculo().getEmpresa() != null) {
-          Hibernate.initialize(viaje.getVehiculo().getEmpresa());
-        }
-        System.out.println("✅ Vehículo inicializado (" + (System.currentTimeMillis() - vehiculoStart) + "ms)");
-      }
-
-      if (viaje.getCarreta() != null) {
-        long carretaStart = System.currentTimeMillis();
-        Hibernate.initialize(viaje.getCarreta());
-        if (viaje.getCarreta().getEmpresa() != null) {
-          Hibernate.initialize(viaje.getCarreta().getEmpresa());
-        }
-        System.out.println("✅ Carreta inicializada (" + (System.currentTimeMillis() - carretaStart) + "ms)");
-      }
-
-      // 4. Inicializar empresas del viaje
-      long empresasStart = System.currentTimeMillis();
-      if (viaje.getEmpresaTransportista() != null) {
-        Hibernate.initialize(viaje.getEmpresaTransportista());
-      }
-      if (viaje.getEmpresaOperador() != null) {
-        Hibernate.initialize(viaje.getEmpresaOperador());
-      }
-      if (viaje.getEmpresaCliente() != null) {
-        Hibernate.initialize(viaje.getEmpresaCliente());
-      }
-      if (viaje.getEmpresaNaviera() != null) {
-        Hibernate.initialize(viaje.getEmpresaNaviera());
-      }
-      System.out.println("✅ Empresas del viaje inicializadas (" + (System.currentTimeMillis() - empresasStart) + "ms)");
-
-      long totalTime = System.currentTimeMillis() - startTime;
-      System.out.println("✅ ✨ TODAS las relaciones inicializadas exitosamente en " + totalTime + "ms");
-
-      if (totalTime > 5000) {
-        System.out.println("⚠️ ADVERTENCIA: La carga tomó más de 5 segundos. Considerar optimización.");
-      }
-
-    } catch (Exception e) {
-      long totalTime = System.currentTimeMillis() - startTime;
-      System.err.println("❌ ERROR FATAL en inicialización después de " + totalTime + "ms");
-      System.err.println("   Mensaje: " + e.getMessage());
-      System.err.println("   Tipo: " + e.getClass().getName());
-      if (e.getCause() != null) {
-        System.err.println("   Causa: " + e.getCause().getMessage());
-      }
-      e.printStackTrace();
-      throw new RuntimeException("Error al inicializar relaciones del viaje: " + e.getMessage(), e);
+    if (totalTime > 3000) {
+      System.out.println("⚠️ ADVERTENCIA: La carga tomó más de 3 segundos");
     }
 
     return convertToDto(viaje);
@@ -462,7 +374,7 @@ public class ViajeServiceImpl implements ViajeService {
   }
 
   /**
-   * ✅ MÉTODO CORREGIDO: Manejo defensivo de colecciones lazy
+   * ✅ MAPEO SIMPLIFICADO: Todo ya está cargado por JOIN FETCH
    */
   private ViajeDto.ConductorDto mapearConductor(Conductor conductor) {
     ViajeDto.ConductorDto dto = new ViajeDto.ConductorDto();
@@ -478,53 +390,23 @@ public class ViajeServiceImpl implements ViajeService {
     dto.setActivo(conductor.getActivo());
     dto.setFechaCreacion(conductor.getFechaCreacion());
 
-    // ✅ MANEJO DEFENSIVO: Verificar múltiples condiciones antes de acceder
-    try {
-      System.out.println("🔍 Intentando mapear conductor: " + conductor.getId());
+    // ✅ SIMPLE: Los datos ya están cargados gracias a JOIN FETCH
+    if (conductor.getConductorEmpresas() != null && !conductor.getConductorEmpresas().isEmpty()) {
+      var ce = conductor.getConductorEmpresas().get(0);
 
-      if (conductor.getConductorEmpresas() != null) {
-        System.out.println("  📋 ConductorEmpresas no es null, obteniendo tamaño...");
-
-        // Verificar que no esté vacío
-        if (!conductor.getConductorEmpresas().isEmpty()) {
-          System.out.println("  ✅ ConductorEmpresas tiene " + conductor.getConductorEmpresas().size() + " elementos");
-
-          var ce = conductor.getConductorEmpresas().get(0);
-
-          if (ce != null) {
-            System.out.println("  ✅ Primer elemento de ConductorEmpresas obtenido");
-
-            if (ce.getEmpresa() != null) {
-              dto.setEmpresaId(ce.getEmpresa().getId());
-              System.out.println("  ✅ EmpresaId mapeado: " + ce.getEmpresa().getId());
-            }
-
-            if (ce.getFechaInicio() != null) {
-              dto.setFechaInicio(ce.getFechaInicio().atStartOfDay());
-              System.out.println("  ✅ FechaInicio mapeada");
-            }
-
-            if (ce.getFechaFin() != null) {
-              dto.setFechaFin(ce.getFechaFin().atStartOfDay());
-              System.out.println("  ✅ FechaFin mapeada");
-            }
-          } else {
-            System.out.println("  ⚠️ Primer elemento de ConductorEmpresas es null");
-          }
-        } else {
-          System.out.println("  ⚠️ ConductorEmpresas está vacío");
-        }
-      } else {
-        System.out.println("  ⚠️ ConductorEmpresas es null para conductor: " + conductor.getId());
+      if (ce.getEmpresa() != null) {
+        dto.setEmpresaId(ce.getEmpresa().getId());
       }
-    } catch (Exception e) {
-      System.err.println("  ❌ Error al mapear conductor empresas: " + e.getMessage());
-      e.printStackTrace();
-      // No lanzamos la excepción, solo registramos el error
-      // El DTO se retorna con los campos de empresa sin llenar
+
+      if (ce.getFechaInicio() != null) {
+        dto.setFechaInicio(ce.getFechaInicio().atStartOfDay());
+      }
+
+      if (ce.getFechaFin() != null) {
+        dto.setFechaFin(ce.getFechaFin().atStartOfDay());
+      }
     }
 
-    System.out.println("✅ Conductor mapeado exitosamente: " + conductor.getId());
     return dto;
   }
 }
