@@ -37,6 +37,7 @@ public class AnalisisParadasController {
    * 
    * GET /api/analisis-paradas/tramo/{tramoId}
    */
+  @Transactional(readOnly = true)
   @GetMapping("/tramo/{tramoId}")
   public ResponseEntity<?> analizarParadasTramo(@PathVariable String tramoId) {
     try {
@@ -90,11 +91,7 @@ public class AnalisisParadasController {
     }
   }
 
-  /**
-   * 📊 Endpoint: Resumen de paradas de un tramo
-   * 
-   * GET /api/analisis-paradas/tramo/{tramoId}/resumen
-   */
+  @Transactional(readOnly = true)
   @GetMapping("/tramo/{tramoId}/resumen")
   public ResponseEntity<?> resumenParadasTramo(@PathVariable String tramoId) {
     try {
