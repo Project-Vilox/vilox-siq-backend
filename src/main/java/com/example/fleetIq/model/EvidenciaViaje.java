@@ -29,6 +29,7 @@ public class EvidenciaViaje {
     private TipoAdjunto tipoAdjunto;
 
     @Lob
+    @Basic(fetch = FetchType.LAZY)
     @Column(name = "adjunto", nullable = false)
     private byte[] adjunto;
 
