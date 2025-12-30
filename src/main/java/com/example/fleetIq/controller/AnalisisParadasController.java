@@ -40,15 +40,15 @@ public class AnalisisParadasController {
   @GetMapping("/tramo/{tramoId}")
   public ResponseEntity<?> analizarParadasTramo(@PathVariable String tramoId) {
     try {
-      // 1. Obtener el tramo
-      Tramo tramo = tramoRepository.findById(tramoId)
+      // 1. Obtener el tramo CON relaciones cargadas ⬅️ CAMBIO AQUÍ
+      Tramo tramo = tramoRepository.findByIdWithRelations(tramoId)
           .orElse(null);
 
       if (tramo == null) {
         return ResponseEntity.notFound().build();
       }
 
-      // 2. Obtener el IMEI del vehículo
+      // 2. Obtener el IMEI del vehículo (ahora ya está cargado)
       String imei = tramo.getViaje().getVehiculo().getImei();
 
       if (imei == null) {
@@ -98,7 +98,9 @@ public class AnalisisParadasController {
   @GetMapping("/tramo/{tramoId}/resumen")
   public ResponseEntity<?> resumenParadasTramo(@PathVariable String tramoId) {
     try {
-      Tramo tramo = tramoRepository.findById(tramoId).orElse(null);
+      // ⬅️ CAMBIO AQUÍ TAMBIÉN
+      Tramo tramo = tramoRepository.findByIdWithRelations(tramoId)
+          .orElse(null);
 
       if (tramo == null) {
         return ResponseEntity.notFound().build();
@@ -164,3 +166,17 @@ public class AnalisisParadasController {
     public java.util.Map<String, Integer> porCategoria;
   }
 }
+```
+
+## ✅ Por qué funciona
+
+1. **JOIN FETCH** carga las relaciones en la misma query SQL
+2. No depende de que `@Transactional` esté configurado correctamente
+3. Es **independiente del entorno** (funciona igual en local y producción)
+4. **Mejor performance**: 1 query en lugar de múltiples queries lazy
+
+## 🔍 Verificación
+
+Despliega el cambio a Render y prueba nuevamente:
+```
+https://vilox-flota-api.onrender.com/api/analisis-paradas/tramo/030ee28e-e930-4eb0-bfd4-e8ef16df0938

@@ -86,7 +86,7 @@ public class TramoServiceImpl implements TramoService {
 
     @PostConstruct
     public void init() {
-        // lastProcessedAlarmId = 16217L;
+        //lastProcessedAlarmId = 16217L;
         lastProcessedAlarmId = alarmRepository.findMaxAlarmId().orElse(0L);
         System.out.println("🚀 TramoService inicializado. Última alarma procesada: " + lastProcessedAlarmId);
         System.out.println("⚠️ Las alarmas anteriores a este ID serán ignoradas");

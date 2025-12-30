@@ -34,4 +34,10 @@ public interface TramoRepository extends JpaRepository<Tramo, String> {
       "AND t.estado IN ('pendiente', 'en_curso') " +
       "ORDER BY v.fechaInicioProgramada DESC, t.orden ASC")
   List<Tramo> findTramosActivosPorVehiculo(@Param("imei") String imei);
+
+  @Query("SELECT t FROM Tramo t " +
+           "LEFT JOIN FETCH t.viaje v " +
+           "LEFT JOIN FETCH v.vehiculo " +
+           "WHERE t.id = :tramoId")
+    Optional<Tramo> findByIdWithRelations(@Param("tramoId") String tramoId);
 }
