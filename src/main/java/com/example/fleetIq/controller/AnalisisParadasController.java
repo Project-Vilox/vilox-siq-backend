@@ -166,17 +166,3 @@ public class AnalisisParadasController {
     public java.util.Map<String, Integer> porCategoria;
   }
 }
-```
-
-## ✅ Por qué funciona
-
-1. **JOIN FETCH** carga las relaciones en la misma query SQL
-2. No depende de que `@Transactional` esté configurado correctamente
-3. Es **independiente del entorno** (funciona igual en local y producción)
-4. **Mejor performance**: 1 query en lugar de múltiples queries lazy
-
-## 🔍 Verificación
-
-Despliega el cambio a Render y prueba nuevamente:
-```
-https://vilox-flota-api.onrender.com/api/analisis-paradas/tramo/030ee28e-e930-4eb0-bfd4-e8ef16df0938

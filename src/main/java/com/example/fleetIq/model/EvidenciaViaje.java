@@ -3,7 +3,10 @@ package com.example.fleetIq.model;
 import jakarta.persistence.*;
 import lombok.Data;
 
+import java.sql.Types;
 import java.time.LocalDateTime;
+
+import org.hibernate.annotations.JdbcTypeCode;
 
 @Data
 @Entity
@@ -28,7 +31,7 @@ public class EvidenciaViaje {
     @Column(name = "tipo_adjunto", nullable = false)
     private TipoAdjunto tipoAdjunto;
 
-    @Lob
+    @JdbcTypeCode(Types.VARBINARY) // Esto asegura que mapee correctamente a bytea
     @Column(name = "adjunto", nullable = false)
     private byte[] adjunto;
 
@@ -39,7 +42,7 @@ public class EvidenciaViaje {
     private String contentType;
 
     @Column(name = "tamanio_archivo", nullable = false)
-    private long tamanioArchivo;
+    private Long tamanioArchivo;
 
     @Column(name = "fecha_creacion")
     private LocalDateTime fechaCreacion;
@@ -48,7 +51,8 @@ public class EvidenciaViaje {
     private LocalDateTime fechaActualizacion;
 
     public enum Hito {
-        RETIRO_DE_VACIO,LLEGADA_A_PLANTA,ENTREGA_A_PUERTO,PREVIO_SERVICIO,LLEGADA_DEPOT,SALIDA_DEPOT,INGRESO_SALIDA_COCHERA,LLEGADA_PLANTA,TERMINO_CARGA, LLEGADA_PUERTO, SALIDA_PUERTO
+        RETIRO_DE_VACIO, LLEGADA_A_PLANTA, ENTREGA_A_PUERTO, PREVIO_SERVICIO, LLEGADA_DEPOT, SALIDA_DEPOT,
+        INGRESO_SALIDA_COCHERA, LLEGADA_PLANTA, TERMINO_CARGA, LLEGADA_PUERTO, SALIDA_PUERTO
 
     }
 

@@ -11,21 +11,22 @@ import java.util.Optional;
 
 public interface EvidenciaViajeRepository extends JpaRepository<EvidenciaViaje, String> {
 
-    // ✅ Query para LISTAR (sin BLOB)
-    @Query("SELECT new com.example.fleetIq.dto.EvidenciaViajeResponse(" +
-            "e.id, e.idViaje, e.hito, e.secuencia, e.tipoAdjunto, " +
-            "e.nombreArchivo, e.contentType, e.tamanioArchivo, " +
-            "e.fechaCreacion, e.fechaActualizacion) " +
-            "FROM EvidenciaViaje e WHERE e.idViaje = :viajeId " +
-            "ORDER BY e.secuencia ASC")
-    List<EvidenciaViajeResponse> findMetadataByIdViaje(@Param("viajeId") String viajeId);
+        // ✅ Query para LISTAR (sin BLOB)
+        @Query("SELECT new com.example.fleetIq.dto.EvidenciaViajeResponse(" +
+                        "e.id, e.idViaje, e.hito, e.secuencia, e.tipoAdjunto, " +
+                        "e.nombreArchivo, e.contentType, e.tamanioArchivo, " +
+                        "e.fechaCreacion, e.fechaActualizacion) " +
+                        "FROM EvidenciaViaje e WHERE e.idViaje = :viajeId " +
+                        "ORDER BY e.secuencia ASC")
+        List<EvidenciaViajeResponse> findMetadataByIdViaje(@Param("viajeId") String viajeId);
 
-    // ✅ Query para obtener solo el BLOB
-    @Query("SELECT e.adjunto FROM EvidenciaViaje e WHERE e.id = :id")
-    byte[] findAdjuntoById(@Param("id") String id);
+        // ✅ Query para obtener solo el BLOB
+        // Cambia esto en EvidenciaViajeRepository.java
+        @Query(value = "SELECT adjunto FROM evidencias_viajes WHERE id = :id", nativeQuery = true)
+        byte[] findAdjuntoById(@Param("id") String id);
 
-    Optional<EvidenciaViaje> findByIdViajeAndHitoAndSecuencia(
-            String idViaje,
-            EvidenciaViaje.Hito hito,
-            Integer secuencia);
+        Optional<EvidenciaViaje> findByIdViajeAndHitoAndSecuencia(
+                        String idViaje,
+                        EvidenciaViaje.Hito hito,
+                        Integer secuencia);
 }

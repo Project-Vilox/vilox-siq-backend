@@ -18,7 +18,7 @@ public class EvidenciaViajeResponse {
     private EvidenciaViaje.TipoAdjunto tipoAdjunto;
     private String nombreArchivo;
     private String contentType;
-    private long tamanioArchivo;
+    private Long tamanioArchivo;
     private LocalDateTime fechaCreacion;
     private LocalDateTime fechaActualizacion;
     private byte[] adjunto; // Será null en listados
@@ -32,7 +32,7 @@ public class EvidenciaViajeResponse {
             EvidenciaViaje.TipoAdjunto tipoAdjunto,
             String nombreArchivo,
             String contentType,
-            long tamanioArchivo,
+            Long tamanioArchivo,
             LocalDateTime fechaCreacion,
             LocalDateTime fechaActualizacion) {
         this.id = id;

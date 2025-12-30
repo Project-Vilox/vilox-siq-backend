@@ -86,7 +86,7 @@ public class TramoServiceImpl implements TramoService {
 
     @PostConstruct
     public void init() {
-        //lastProcessedAlarmId = 16217L;
+        // lastProcessedAlarmId = 16217L;
         lastProcessedAlarmId = alarmRepository.findMaxAlarmId().orElse(0L);
         System.out.println("🚀 TramoService inicializado. Última alarma procesada: " + lastProcessedAlarmId);
         System.out.println("⚠️ Las alarmas anteriores a este ID serán ignoradas");
@@ -195,46 +195,6 @@ public class TramoServiceImpl implements TramoService {
         System.out.println("   Destino Interna: " + geocercaInternaDestinoId);
         System.out.println("   Geocerca de Alarma: " + geocercaId);
 
-        // ========================================================================
-        // CASO ESPECIAL: HERENCIA DE TRAMO ANTERIOR
-        // ========================================================================
-        // if (tramo.getEstado() == Tramo.EstadoTramo.pendiente &&
-        // tramo.getHoraEntradaGeocercaExternaOrigen() == null &&
-        // tramo.getOrden() > 1) {
-
-        // boolean esAlarmaOrigen = (geocercaExternaOrigenId != null &&
-        // geocercaId.equals(geocercaExternaOrigenId)) ||
-        // (geocercaInternaOrigenId != null &&
-        // geocercaId.equals(geocercaInternaOrigenId));
-
-        // if (esAlarmaOrigen) {
-        // Tramo tramoAnterior = obtenerTramoAnterior(tramo);
-        // if (tramoAnterior != null &&
-        // tramoAnterior.getEstado() == Tramo.EstadoTramo.completado &&
-        // tramoAnterior.getHoraSalidaGeocercaExternaDestino2() != null) {
-
-        // System.out.println("🔄 ACTIVACIÓN AUTOMÁTICA: Heredando del tramo anterior");
-
-        // tramo.setHoraEntradaGeocercaExternaOrigen(tramoAnterior.getHoraEntradaGeocercaExternaDestino());
-        // tramo.setHoraSalidaGeocercaExternaOrigen1(tramoAnterior.getHoraSalidaGeocercaExternaDestino1());
-        // tramo.setHoraEntradaGeocercaInternaOrigen(tramoAnterior.getHoraEntradaGeocercaInternaDestino());
-        // tramo.setHoraSalidaGeocercaInternaOrigen(tramoAnterior.getHoraSalidaGeocercaInternaDestino());
-        // tramo.setHoraEntradaGeocercaExternaOrigen2(tramoAnterior.getHoraEntradaGeocercaExternaDestino2());
-        // tramo.setHoraSalidaGeocercaExternaOrigen2(tramoAnterior.getHoraSalidaGeocercaExternaDestino2());
-        // tramo.setTiempoAtencionCita1(tramoAnterior.getTiempoAtencionCita2());
-
-        // // ✅ CAMPOS LEGACY - Usar salida FINAL de externa
-        // tramo.setHoraLlegadaReal(tramoAnterior.getHoraEntradaGeocercaExternaDestino());
-        // tramo.setHoraSalidaReal(tramoAnterior.getHoraSalidaGeocercaExternaDestino2());
-        // // ✅ SEGUNDA SALIDA
-
-        // tramo.setEstado(Tramo.EstadoTramo.en_curso);
-        // tramoActualizado = true;
-
-        // System.out.println("✅ Tramo activado con herencia completa");
-        // }
-        // }
-        // }
         // CASO ESPECIAL: HERENCIA DE TRAMO ANTERIOR
         if (tramo.getEstado() == Tramo.EstadoTramo.pendiente &&
                 tramo.getHoraLlegadaReal() == null && // ✅ Usar campo legacy
@@ -538,10 +498,6 @@ public class TramoServiceImpl implements TramoService {
             }
         }
 
-        // ========================================================================
-        // GUARDAR
-        // ========================================================================
-
         if (tramoActualizado) {
             tramoRepository.save(tramo);
             System.out.println("💾 Tramo actualizado - Estado: " + tramo.getEstado());
@@ -550,29 +506,6 @@ public class TramoServiceImpl implements TramoService {
         }
     }
 
-    // ========================================================================
-    // MAPEO CORRECTO DE CAMPOS LEGACY
-    // ========================================================================
-
-    /*
-     * CAMPOS NUEVOS (Geocercas Adyacentes):
-     * - horaEntradaGeocercaExternaOrigen → Paso 1
-     * - horaSalidaGeocercaExternaOrigen1 → Paso 2
-     * - horaEntradaGeocercaInternaOrigen → Paso 3
-     * - horaSalidaGeocercaInternaOrigen → Paso 4
-     * - horaEntradaGeocercaExternaOrigen2 → Paso 5
-     * - horaSalidaGeocercaExternaOrigen2 → Paso 6
-     * 
-     * CAMPOS LEGACY (Compatibilidad):
-     * - horaLlegadaReal = horaEntradaGeocercaExternaOrigen (Paso 1)
-     * - horaSalidaReal = horaSalidaGeocercaExternaOrigen2 (Paso 6) ✅
-     * - horaLlegadaRealDestino = horaEntradaGeocercaExternaDestino (Paso 1)
-     * - horaSalidaRealDestino = horaSalidaGeocercaExternaDestino2 (Paso 6) ✅
-     * 
-     * MÉTRICAS:
-     * - tiempoAtencionCita1 = Paso 3 → Paso 4 (Interna)
-     * - tiempoPermanenciaCita1 = Paso 1 → Paso 6 (Externa completa)
-     */
     /**
      * 🆕 OBTIENE EL TRAMO ANTERIOR DEL VIAJE
      */
@@ -886,228 +819,6 @@ public class TramoServiceImpl implements TramoService {
         }
     }
 
-    // IMPORTANTE: NO pongas @Transactional aquí.
-    // Los métodos de conversión (DTO) deben ser "puros" y manejar nulos.
-    // @Override
-    // public TramoDto convertToDto(Tramo tramo) {
-    // if (tramo == null)
-    // return null;
-
-    // TramoDto dto = new TramoDto();
-    // dto.setId(tramo.getId());
-
-    // // --- ACCESO SEGURO A RELACIONES (Evita el Rollback-only) ---
-    // // Usamos condicionales para que si la relación es nula o no está cargada, no
-    // // rompa el flujo
-
-    // if (tramo.getViaje() != null) {
-    // dto.setViajeId(tramo.getViaje().getId());
-    // }
-
-    // if (tramo.getEstablecimientoOrigen() != null) {
-    // dto.setEstablecimientoOrigenId(tramo.getEstablecimientoOrigen().getId());
-    // }
-
-    // if (tramo.getEstablecimientoDestino() != null) {
-    // dto.setEstablecimientoDestinoId(tramo.getEstablecimientoDestino().getId());
-    // }
-
-    // // --- ACCESO SEGURO A ENUMS ---
-    // if (tramo.getTipoActividad() != null) {
-    // dto.setTipoActividad(tramo.getTipoActividad().name());
-    // }
-
-    // if (tramo.getEstado() != null) {
-    // dto.setEstado(tramo.getEstado().name());
-    // }
-
-    // // --- MAPEO DE CAMPOS SIMPLES ---
-    // dto.setOrden(tramo.getOrden());
-    // dto.setDescripcion(tramo.getDescripcion());
-    // dto.setHoraLlegadaProgramada(tramo.getHoraLlegadaProgramada());
-    // dto.setHoraSalidaProgramada(tramo.getHoraSalidaProgramada());
-    // dto.setHoraLlegadaReal(tramo.getHoraLlegadaReal());
-    // dto.setHoraSalidaReal(tramo.getHoraSalidaReal());
-    // dto.setHoraLlegadaRealDestino(tramo.getHoraLlegadaRealDestino());
-    // dto.setHoraSalidaRealDestino(tramo.getHoraSalidaRealDestino());
-    // dto.setSlaMinutos(tramo.getSlaMinutos());
-    // dto.setObservaciones(tramo.getObservaciones());
-    // dto.setTracto(tramo.getTracto());
-    // dto.setChasis(tramo.getChasis());
-    // dto.setConductor(tramo.getConductor());
-    // dto.setTardanzaCita1(tramo.getTardanzaCita1());
-    // dto.setTiempoPermanenciaCita1(tramo.getTiempoPermanenciaCita1());
-    // dto.setTiempoAtencionCita1(tramo.getTiempoAtencionCita1());
-    // dto.setTardanzaCita2(tramo.getTardanzaCita2());
-    // dto.setTiempoPermanenciaCita2(tramo.getTiempoPermanenciaCita2());
-    // dto.setTiempoAtencionCita2(tramo.getTiempoAtencionCita2());
-
-    // // --- LLAMADA A CÁLCULOS EXTERNOS ---
-    // try {
-    // // Envolvemos esto en un try-catch interno para que si falla el cálculo de
-    // ETA
-    // // (por OSRM o nulos),
-    // // al menos devuelva los datos básicos del tramo y no de error 500.
-    // calcularEtaYAvance(tramo, dto);
-    // } catch (Exception e) {
-    // // Logueamos el error pero permitimos que el DTO se devuelva
-    // System.err.println("Error calculando ETA para tramo " + tramo.getId() + ": "
-    // + e.getMessage());
-    // }
-
-    // return dto;
-    // }
-    /**
-     * ✅ MÉTODO RÁPIDO Y SEGURO: Solo convierte entidad → DTO básico
-     * NO hace cálculos pesados ni consultas externas
-     * NO puede causar rollback de transacciones
-     */
-    // @Override
-    // public TramoDto convertToDto(Tramo tramo) {
-    // if (tramo == null)
-    // return null;
-
-    // TramoDto dto = new TramoDto();
-
-    // // ========================================================================
-    // // IDENTIFICACIÓN Y RELACIONES
-    // // ========================================================================
-    // dto.setId(tramo.getId());
-
-    // if (tramo.getViaje() != null) {
-    // dto.setViajeId(tramo.getViaje().getId());
-    // }
-
-    // // ========================================================================
-    // // ESTABLECIMIENTOS (CON INFORMACIÓN COMPLETA)
-    // // ========================================================================
-    // if (tramo.getEstablecimientoOrigen() != null) {
-    // dto.setEstablecimientoOrigenId(tramo.getEstablecimientoOrigen().getId());
-
-    // // Crear DTO del establecimiento con toda su info
-    // EstablecimientoDto origenDto = new EstablecimientoDto();
-    // origenDto.setId(tramo.getEstablecimientoOrigen().getId());
-    // origenDto.setNombre(tramo.getEstablecimientoOrigen().getNombre());
-    // // Agregar más campos si EstablecimientoDto los tiene
-    // dto.setEstablecimientoOrigen(origenDto);
-    // }
-
-    // if (tramo.getEstablecimientoDestino() != null) {
-    // dto.setEstablecimientoDestinoId(tramo.getEstablecimientoDestino().getId());
-
-    // // Crear DTO del establecimiento con toda su info
-    // EstablecimientoDto destinoDto = new EstablecimientoDto();
-    // destinoDto.setId(tramo.getEstablecimientoDestino().getId());
-    // destinoDto.setNombre(tramo.getEstablecimientoDestino().getNombre());
-    // // Agregar más campos si EstablecimientoDto los tiene
-    // dto.setEstablecimientoDestino(destinoDto);
-    // }
-
-    // // ========================================================================
-    // // INFORMACIÓN DEL TRAMO
-    // // ========================================================================
-    // if (tramo.getTipoActividad() != null) {
-    // dto.setTipoActividad(tramo.getTipoActividad().name());
-    // }
-
-    // if (tramo.getEstado() != null) {
-    // dto.setEstado(tramo.getEstado().name());
-    // }
-
-    // dto.setOrden(tramo.getOrden());
-    // dto.setDescripcion(tramo.getDescripcion());
-    // dto.setSlaMinutos(tramo.getSlaMinutos());
-    // dto.setObservaciones(tramo.getObservaciones());
-
-    // // ========================================================================
-    // // HORARIOS PROGRAMADOS
-    // // ========================================================================
-    // dto.setHoraLlegadaProgramada(tramo.getHoraLlegadaProgramada());
-    // dto.setHoraSalidaProgramada(tramo.getHoraSalidaProgramada());
-
-    // // ========================================================================
-    // // HORARIOS REALES - ORIGEN
-    // // ========================================================================
-    // dto.setHoraLlegadaReal(tramo.getHoraLlegadaReal());
-    // dto.setHoraSalidaReal(tramo.getHoraSalidaReal());
-    // dto.setHoraEntradaGeocercaInternaOrigen(tramo.getHoraEntradaGeocercaInternaOrigen());
-    // // 🆕
-
-    // // ========================================================================
-    // // HORARIOS REALES - DESTINO
-    // // ========================================================================
-    // dto.setHoraLlegadaRealDestino(tramo.getHoraLlegadaRealDestino());
-    // dto.setHoraSalidaRealDestino(tramo.getHoraSalidaRealDestino());
-    // dto.setHoraEntradaGeocercaInternaDestino(tramo.getHoraEntradaGeocercaInternaDestino());
-    // // 🆕
-
-    // // ========================================================================
-    // // MÉTRICAS
-    // // ========================================================================
-    // dto.setTardanzaCita1(tramo.getTardanzaCita1());
-    // dto.setTiempoPermanenciaCita1(tramo.getTiempoPermanenciaCita1());
-    // dto.setTiempoAtencionCita1(tramo.getTiempoAtencionCita1());
-    // dto.setTardanzaCita2(tramo.getTardanzaCita2());
-    // dto.setTiempoPermanenciaCita2(tramo.getTiempoPermanenciaCita2());
-    // dto.setTiempoAtencionCita2(tramo.getTiempoAtencionCita2());
-
-    // // ========================================================================
-    // // RECURSOS ASIGNADOS
-    // // ========================================================================
-    // dto.setTracto(tramo.getTracto());
-    // dto.setChasis(tramo.getChasis());
-    // dto.setConductor(tramo.getConductor());
-
-    // // ========================================================================
-    // // 🆕 CALCULAR ETA PROGRAMADO (Para comparación posterior)
-    // // ========================================================================
-    // if (tramo.getHoraLlegadaProgramada() != null) {
-    // ZonedDateTime horaProg = tramo.getHoraLlegadaProgramada().atZone(ZONA_PERU);
-    // dto.setEtaProgramado(horaProg.format(DateTimeFormatter.ofPattern("HH:mm")));
-    // }
-
-    // // ========================================================================
-    // // 🆕 CALCULAR DEMORA EN SALIDA DEL ORIGEN
-    // // ========================================================================
-    // if (tramo.getHoraSalidaProgramada() != null && tramo.getHoraSalidaReal() !=
-    // null) {
-    // long demoraSalida = Duration.between(
-    // tramo.getHoraSalidaProgramada(),
-    // tramo.getHoraSalidaReal()).toMinutes();
-
-    // if (demoraSalida > 0) {
-    // dto.setDemoraSalida((int) demoraSalida);
-    // System.out.println("🕐 Demora en salida detectada: " + demoraSalida + "
-    // min");
-    // }
-    // }
-
-    // // ========================================================================
-    // // 🆕 OPCIONAL: Crear objeto de demoras detallado
-    // // ========================================================================
-    // if (tramo.getHoraSalidaReal() != null && tramo.getHoraLlegadaRealDestino() !=
-    // null) {
-    // TramoDto.DemorasDto demoras = new TramoDto.DemorasDto();
-
-    // // Demora en salida
-    // if (dto.getDemoraSalida() != null) {
-    // demoras.setDemoraSalidaOrigen(dto.getDemoraSalida());
-    // }
-
-    // // Tiempo real de tránsito
-    // long tiempoRealTransito = Duration.between(
-    // tramo.getHoraSalidaReal(),
-    // tramo.getHoraLlegadaRealDestino()).toMinutes();
-    // demoras.setTiempoRealTransito((int) tiempoRealTransito);
-
-    // dto.setDemoras(demoras);
-    // }
-
-    // // NOTA: El ETA actual, avance y semáforo se calculan después
-    // // en el método enriquecerConEtaYAvance() solo para tramos EN_CURSO
-
-    // return dto;
-    // }
     /**
      * ✅ MÉTODO COMPLETO: Mapea TODOS los campos de geocercas adyacentes
      */
@@ -1387,6 +1098,68 @@ public class TramoServiceImpl implements TramoService {
         }
     }
 
+    /**
+     * Obtiene el track más cercano al momento de salida del origen
+     */
+    private Track obtenerTrackCercanoASalida(Tramo tramo, String imei) {
+        if (tramo.getHoraSalidaReal() == null) {
+            System.out.println("      ⚠️ No hay hora de salida real registrada");
+            return null;
+        }
+
+        try {
+            long timestampSalida = tramo.getHoraSalidaReal()
+                    .atZone(ZoneId.systemDefault())
+                    .toEpochSecond();
+
+            // Buscar tracks en ventana de ±10 minutos de la salida
+            long ventanaInicio = timestampSalida - 600; // -10 min
+            long ventanaFin = timestampSalida + 600; // +10 min
+
+            System.out.println("      🔍 Buscando tracks entre " +
+                    LocalDateTime.ofEpochSecond(ventanaInicio, 0, ZoneOffset.UTC).atZone(ZONA_PERU)
+                            .format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+                    +
+                    " y " +
+                    LocalDateTime.ofEpochSecond(ventanaFin, 0, ZoneOffset.UTC).atZone(ZONA_PERU)
+                            .format(DateTimeFormatter.ofPattern("HH:mm:ss")));
+
+            List<Track> tracksVentana = trackRepository.findTracksByImeiInTimeRange(
+                    imei, ventanaInicio, ventanaFin);
+
+            if (tracksVentana.isEmpty()) {
+                System.out.println("      ⚠️ No hay tracks en la ventana de tiempo");
+                return null;
+            }
+
+            System.out.println("      ✅ Encontrados " + tracksVentana.size() + " tracks en ventana");
+
+            // Ordenar por cercanía al timestamp de salida y tomar el más cercano
+            Track trackMasCercano = tracksVentana.stream()
+                    .min((t1, t2) -> {
+                        long diff1 = Math.abs(t1.getGpstime() - timestampSalida);
+                        long diff2 = Math.abs(t2.getGpstime() - timestampSalida);
+                        return Long.compare(diff1, diff2);
+                    })
+                    .orElse(null);
+
+            if (trackMasCercano != null) {
+                long diffMinutos = Math.abs(trackMasCercano.getGpstime() - timestampSalida) / 60;
+                System.out.println("      ✅ Track más cercano: ID " + trackMasCercano.getId() +
+                        " (diferencia: " + diffMinutos + " min)");
+                System.out.println("      📍 Posición: [" + trackMasCercano.getLatitude() + ", "
+                        + trackMasCercano.getLongitude() + "]");
+            }
+
+            return trackMasCercano;
+
+        } catch (Exception e) {
+            System.err.println("      ❌ Error buscando track de salida: " + e.getMessage());
+            e.printStackTrace();
+            return null;
+        }
+    }
+
     // ========================================================================
     // MÉTODO MEJORADO: Calcular ETA con detección de herencia
     // ========================================================================
@@ -1483,6 +1256,8 @@ public class TramoServiceImpl implements TramoService {
                     return;
                 }
 
+                System.out.println("   📍 GPS actual: [" + track.getLatitude() + ", " + track.getLongitude() + "]");
+
                 CoordenadaDto coordsDestino = obtenerCoordenadasEstablecimiento(destino.getId());
 
                 if (coordsDestino == null) {
@@ -1492,51 +1267,78 @@ public class TramoServiceImpl implements TramoService {
                     return;
                 }
 
-                // 🆕 DECISIÓN: ¿Usar origen del establecimiento o GPS actual?
-                CoordenadaDto coordsOrigen;
+                // 🆕 DECISIÓN INTELIGENTE: Adaptar según el contexto del tramo
+                CoordenadaDto coordsOrigenParaRutaTotal;
                 DuracionDistanciaResult rutaTotal;
 
                 if (esTramoHeredado) {
-                    // Para tramos heredados: calcular distancia total desde GPS ACTUAL
-                    coordsOrigen = new CoordenadaDto(track.getLatitude(), track.getLongitude());
-                    System.out.println(
-                            "   📍 Origen: GPS actual [" + coordsOrigen.latitud + ", " + coordsOrigen.longitud + "]");
+                    // TRAMOS HEREDADOS: Ya completaron el origen, usar GPS actual como base
+                    coordsOrigenParaRutaTotal = new CoordenadaDto(track.getLatitude(), track.getLongitude());
+                    System.out.println("   📍 Origen (heredado): GPS actual [" + coordsOrigenParaRutaTotal.latitud
+                            + ", " + coordsOrigenParaRutaTotal.longitud + "]");
 
-                    // La "ruta total" es en realidad la ruta desde donde está ahora
                     rutaTotal = obtenerDuracionYDistanciaOSRM(
-                            coordsOrigen.latitud, coordsOrigen.longitud,
+                            coordsOrigenParaRutaTotal.latitud, coordsOrigenParaRutaTotal.longitud,
                             coordsDestino.latitud, coordsDestino.longitud);
 
                 } else {
-                    // Para tramos normales: usar origen del establecimiento
-                    coordsOrigen = obtenerCoordenadasEstablecimiento(origen.getId());
+                    // TRAMOS NORMALES: Intentar obtener posición REAL de salida
+                    System.out.println("   🔍 Buscando track de salida real...");
 
-                    if (coordsOrigen == null) {
-                        System.out.println("❌ No se pudieron obtener coordenadas del origen");
-                        dto.setEta("Calculando...");
-                        dto.setSemaforo("GRIS");
-                        return;
+                    // Primero, intentar obtener el primer track después de la salida
+                    Track trackSalida = obtenerTrackCercanoASalida(tramo, imei);
+
+                    if (trackSalida != null && trackSalida.getId() != track.getId()) {
+                        // Tenemos un track de cuando salió, usarlo como origen
+                        coordsOrigenParaRutaTotal = new CoordenadaDto(trackSalida.getLatitude(),
+                                trackSalida.getLongitude());
+                        System.out.println("   ✅ Origen: Track al salir [" + coordsOrigenParaRutaTotal.latitud + ", "
+                                + coordsOrigenParaRutaTotal.longitud + "]");
+                    } else {
+                        // Fallback: usar establecimiento
+                        coordsOrigenParaRutaTotal = obtenerCoordenadasEstablecimiento(origen.getId());
+
+                        if (coordsOrigenParaRutaTotal == null) {
+                            System.out.println("❌ No se pudieron obtener coordenadas del origen");
+                            dto.setEta("Calculando...");
+                            dto.setSemaforo("GRIS");
+                            return;
+                        }
+
+                        System.out.println("   📍 Origen: Establecimiento (fallback) ["
+                                + coordsOrigenParaRutaTotal.latitud + ", " + coordsOrigenParaRutaTotal.longitud + "]");
                     }
 
-                    System.out.println("   📍 Origen: Establecimiento [" + coordsOrigen.latitud + ", "
-                            + coordsOrigen.longitud + "]");
-
                     rutaTotal = obtenerDuracionYDistanciaOSRM(
-                            coordsOrigen.latitud, coordsOrigen.longitud,
+                            coordsOrigenParaRutaTotal.latitud, coordsOrigenParaRutaTotal.longitud,
                             coordsDestino.latitud, coordsDestino.longitud);
                 }
 
-                // Calcular ruta restante (siempre desde GPS actual)
-                DuracionDistanciaResult rutaRestante = obtenerDuracionYDistanciaOSRM(
-                        track.getLatitude(), track.getLongitude(),
-                        coordsDestino.latitud, coordsDestino.longitud);
-
-                if (rutaTotal == null || rutaRestante == null) {
-                    System.out.println("❌ Error en respuesta OSRM");
+                if (rutaTotal == null) {
+                    System.out.println("❌ No se pudo calcular ruta total");
                     dto.setEta("Error ruta");
                     dto.setSemaforo("GRIS");
                     return;
                 }
+
+                System.out.println(
+                        "   📏 Ruta total calculada: " + String.format("%.2f km", rutaTotal.distanciaMetros / 1000));
+
+                // Calcular ruta restante (siempre desde GPS actual)
+                System.out.println("   🔍 Calculando ruta restante desde GPS actual...");
+                DuracionDistanciaResult rutaRestante = obtenerDuracionYDistanciaOSRM(
+                        track.getLatitude(), track.getLongitude(),
+                        coordsDestino.latitud, coordsDestino.longitud);
+
+                if (rutaRestante == null) {
+                    System.out.println("❌ Error en respuesta OSRM para ruta restante");
+                    dto.setEta("Error ruta");
+                    dto.setSemaforo("GRIS");
+                    return;
+                }
+
+                System.out.println(
+                        "   📏 Ruta restante: " + String.format("%.2f km", rutaRestante.distanciaMetros / 1000));
 
                 // Calcular ETA
                 ZonedDateTime ahoraPeru = ZonedDateTime.now(ZONA_PERU);
@@ -1594,7 +1396,7 @@ public class TramoServiceImpl implements TramoService {
                     dto.setSemaforo("GRIS");
                 }
 
-                // 🆕 CALCULAR AVANCE (ahora con contexto de herencia)
+                // 🆕 CALCULAR AVANCE (ahora con protección contra distancias negativas)
                 double avance = calcularAvanceInteligente(
                         rutaTotal.distanciaMetros,
                         rutaRestante.distanciaMetros,
@@ -1636,62 +1438,80 @@ public class TramoServiceImpl implements TramoService {
             double distRestante,
             Tramo tramo,
             boolean esTramoHeredado) {
-        double distRecorrida = distTotal - distRestante;
 
         System.out.println("   📊 Cálculo de avance:");
         System.out.println("      Total: " + String.format("%.2f km", distTotal / 1000));
-        System.out.println("      Recorrida: " + String.format("%.2f km", distRecorrida / 1000));
         System.out.println("      Restante: " + String.format("%.2f km", distRestante / 1000));
 
-        if (esTramoHeredado) {
-            System.out.println("      🔄 MODO HEREDADO: Usando GPS actual como base");
-        }
+        // CASO 1: Distancia restante mayor que total (ruta diferente o error de GPS)
+        if (distRestante > distTotal * 1.1) { // 10% de tolerancia
+            System.out.println("      ⚠️ Ruta actual difiere de la planificada (+"
+                    + String.format("%.2f km", (distRestante - distTotal) / 1000) + ")");
 
-        // 🆕 CASO ESPECIAL: Tramo heredado recién activado
-        if (esTramoHeredado && distRecorrida < 500) {
-            // Si ha recorrido menos de 500m desde que se activó
-            System.out.println("      🆕 Tramo heredado recién iniciado - Asignando avance base 10%");
+            // Usar tiempo como indicador de avance
+            if (tramo.getHoraSalidaReal() != null) {
+                LocalDateTime ahora = LocalDateTime.now();
+                long minutosTranscurridos = Duration.between(tramo.getHoraSalidaReal(), ahora).toMinutes();
+
+                // Estimar duración total: distancia / velocidad promedio 50 km/h
+                double duracionEstimadaMinutos = (distTotal / 1000.0) / 50.0 * 60.0;
+
+                System.out.println("      🕐 Calculando avance por tiempo transcurrido...");
+                System.out.println("      ⏱️ Transcurrido: " + minutosTranscurridos + " min");
+                System.out.println("      ⏱️ Estimado total: ~" + Math.round(duracionEstimadaMinutos) + " min");
+
+                if (duracionEstimadaMinutos > 0) {
+                    double avanceTemporal = (minutosTranscurridos / duracionEstimadaMinutos) * 100.0;
+                    avanceTemporal = Math.max(10.0, Math.min(95.0, avanceTemporal));
+
+                    System.out.println("      ✅ Avance temporal calculado: " + String.format("%.1f%%", avanceTemporal));
+
+                    return Math.round(avanceTemporal * 10.0) / 10.0;
+                }
+            }
+
+            System.out.println("      🔧 Asignando avance mínimo: 10%");
             return 10.0;
         }
 
-        // Detectar posibles desvíos
-        if (distRestante > distTotal * 1.3) {
-            double avance = tramo.getHoraSalidaReal() != null ? 10.0 : 0.0;
-            System.out.println("      ⚠️ Posible desvío detectado - Avance fijo: " + avance + "%");
-            return avance;
+        // CASO 2: Cálculo normal por distancia
+        double distRecorrida = distTotal - distRestante;
+        System.out.println("      Recorrida: " + String.format("%.2f km", distRecorrida / 1000));
+
+        if (esTramoHeredado) {
+            System.out.println("      🔄 MODO HEREDADO");
         }
 
-        // Distancia recorrida negativa (error de cálculo)
+        // Protección contra negativos
         if (distRecorrida < 0) {
-            System.out.println("      ⚠️ Distancia negativa - Asignando avance base");
-            return esTramoHeredado ? 10.0 : 5.0;
+            System.out.println("      ⚠️ Distancia recorrida negativa - ajustando a 0");
+            distRecorrida = 0;
         }
 
         if (distTotal > 0) {
             double avance = (distRecorrida / distTotal) * 100.0;
 
-            // Ajustes de límites según contexto
-            if (tramo.getHoraSalidaReal() != null) {
-                double minimoAvance = esTramoHeredado ? 10.0 : 5.0;
-                if (avance < minimoAvance) {
-                    System.out.println("      🔧 Ajuste: Mínimo " + minimoAvance + "%");
-                    avance = minimoAvance;
-                }
+            System.out.println("      📐 Avance bruto: " + String.format("%.2f%%", avance));
+
+            // Ajustes de límites
+            if (tramo.getHoraSalidaReal() != null && avance < 10.0) {
+                System.out.println("      🔧 Ajuste: Mínimo 10% (vehículo ya salió)");
+                avance = 10.0;
             }
 
             if (tramo.getHoraLlegadaRealDestino() == null && avance > 95.0) {
-                System.out.println("      🔧 Ajuste: No ha llegado, máximo 95%");
+                System.out.println("      🔧 Ajuste: Máximo 95% (no ha llegado al destino)");
                 avance = 95.0;
             }
 
             avance = Math.max(0.0, Math.min(100.0, avance));
             avance = Math.round(avance * 10.0) / 10.0;
 
-            System.out.println("      ✅ Avance calculado: " + avance + "%");
+            System.out.println("      ✅ Avance final: " + avance + "%");
             return avance;
         }
 
-        System.out.println("      ❌ Distancia total = 0");
+        System.out.println("      ❌ Distancia total = 0, retornando 0%");
         return 0.0;
     }
     // ========================================================================
@@ -1844,90 +1664,6 @@ public class TramoServiceImpl implements TramoService {
         }
     }
 
-    /**
-     * 🆕 MÉTODO: Analizar paradas del tramo con motivos
-     */
-    // public List<ParadaDetectadaDto> analizarParadasDelTramo(String tramoId,
-    // List<Track> tracks) {
-    // try {
-    // Tramo tramo = tramoRepository.findById(tramoId)
-    // .orElseThrow(() -> new RuntimeException("Tramo no encontrado"));
-
-    // if (tracks == null || tracks.isEmpty()) {
-    // System.out.println("⚠️ No hay datos GPS para analizar paradas");
-    // return Collections.emptyList();
-    // }
-
-    // System.out.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    // System.out.println("🔍 ANALIZANDO PARADAS DEL TRAMO #" + tramo.getOrden());
-    // System.out.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-
-    // // Filtrar tracks del período del tramo
-    // List<Track> tracksFiltrados = filtrarTracksPorPeriodo(tracks, tramo);
-
-    // System.out.println("📊 Tracks a analizar: " + tracksFiltrados.size());
-
-    // // Detectar paradas con motivos
-    // // List<ParadaDetectadaDto> paradas = detectorParadasService
-    // // .detectarParadasConMotivo(tracksFiltrados);
-    // List<ParadaDetectadaDto> paradas =
-    // detectorMejorado.detectarParadasConMotivo(tracksFiltrados);
-    // // Calcular severidad y agregar observaciones
-    // paradas.forEach(parada -> {
-    // parada.calcularSeveridad();
-
-    // // Agregar observación si hay lugar relevante
-    // LugarCercano lugarRelevante = parada.getLugarMasRelevante();
-    // if (lugarRelevante != null) {
-    // parada.setObservaciones(
-    // "Cerca de: " + lugarRelevante.nombre +
-    // " (" + lugarRelevante.tipo + ") a " +
-    // lugarRelevante.distancia + "m");
-    // }
-    // });
-
-    // // Imprimir resumen
-    // System.out.println("\n📋 RESUMEN DE PARADAS:");
-    // System.out.println(" Total detectadas: " + paradas.size());
-
-    // long paradasJustificadas = paradas.stream()
-    // .filter(ParadaDetectadaDto::esJustificada)
-    // .count();
-
-    // long paradasInjustificadas = paradas.size() - paradasJustificadas;
-
-    // System.out.println(" ✅ Justificadas: " + paradasJustificadas);
-    // System.out.println(" ⚠️ No justificadas: " + paradasInjustificadas);
-
-    // // Tiempo total en paradas
-    // int tiempoTotalParadas = paradas.stream()
-    // .mapToInt(ParadaDetectadaDto::getDuracionMinutos)
-    // .sum();
-
-    // System.out.println(" ⏱️ Tiempo total en paradas: " + tiempoTotalParadas + "
-    // min (" +
-    // (tiempoTotalParadas / 60) + "h " + (tiempoTotalParadas % 60) + "min)");
-
-    // // Desglose por categoría
-    // Map<String, Long> porCategoria = paradas.stream()
-    // .collect(Collectors.groupingBy(
-    // ParadaDetectadaDto::getCategoria,
-    // Collectors.counting()));
-
-    // System.out.println("\n📂 DESGLOSE POR CATEGORÍA:");
-    // porCategoria.forEach((categoria, cantidad) -> System.out.println(" " +
-    // categoria + ": " + cantidad));
-
-    // System.out.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-
-    // return paradas;
-
-    // } catch (Exception e) {
-    // System.err.println("❌ Error analizando paradas: " + e.getMessage());
-    // e.printStackTrace();
-    // return Collections.emptyList();
-    // }
-    // }
     public List<ParadaDetectadaDto> analizarParadasDelTramo(String tramoId, List<Track> tracks) {
         try {
             Tramo tramo = tramoRepository.findById(tramoId)
