@@ -12,7 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 public class EvidenciaViajeServiceImpl implements EvidenciaViajeService {
@@ -26,11 +25,9 @@ public class EvidenciaViajeServiceImpl implements EvidenciaViajeService {
     @Override
     @Transactional
     public EvidenciaViajeResponse crearEvidencia(EvidenciaViajeRequest request) {
-        // Validar el viaje
         viajeRepository.findById(request.getViajeId())
                 .orElseThrow(() -> new IllegalArgumentException("Viaje no encontrado: " + request.getViajeId()));
 
-        // Convertir Base64 a bytes
         byte[] adjuntoBytes;
         try {
             adjuntoBytes = Base64.getDecoder().decode(request.getArchivo());
@@ -38,7 +35,6 @@ public class EvidenciaViajeServiceImpl implements EvidenciaViajeService {
             throw new IllegalArgumentException("Archivo Base64 inválido", e);
         }
 
-        // Crear entidad EvidenciaViaje
         EvidenciaViaje evidencia = new EvidenciaViaje();
         evidencia.setIdViaje(request.getViajeId());
         evidencia.setHito(request.getHito());
@@ -51,25 +47,27 @@ public class EvidenciaViajeServiceImpl implements EvidenciaViajeService {
         evidencia.setFechaCreacion(LocalDateTime.now());
         evidencia.setFechaActualizacion(LocalDateTime.now());
 
-        // Guardar la evidencia
         evidencia = evidenciaViajeRepository.save(evidencia);
 
-        // Convertir a DTO de respuesta
-        return convertToResponse(evidencia);
+        // ✅ Devolver CON el BLOB para el preview inmediato
+        return convertToResponseWithBlob(evidencia);
     }
 
+    // ✅ CAMBIO PRINCIPAL: Usar query sin BLOB
     @Override
+    @Transactional(readOnly = true)
     public List<EvidenciaViajeResponse> obtenerEvidenciasPorViaje(String viajeId) {
-        return evidenciaViajeRepository.findByIdViaje(viajeId).stream()
-                .map(this::convertToResponse)
-                .collect(Collectors.toList());
+        return evidenciaViajeRepository.findMetadataByIdViaje(viajeId);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public byte[] descargarEvidencia(String evidenciaId) {
-        EvidenciaViaje evidencia = evidenciaViajeRepository.findById(evidenciaId)
-                .orElseThrow(() -> new IllegalArgumentException("Evidencia no encontrada: " + evidenciaId));
-        return evidencia.getAdjunto();
+        byte[] adjunto = evidenciaViajeRepository.findAdjuntoById(evidenciaId);
+        if (adjunto == null) {
+            throw new IllegalArgumentException("Evidencia no encontrada: " + evidenciaId);
+        }
+        return adjunto;
     }
 
     @Override
@@ -84,25 +82,29 @@ public class EvidenciaViajeServiceImpl implements EvidenciaViajeService {
     @Transactional
     public void eliminarEvidenciaPorViajeHitoSecuencia(String idViaje, EvidenciaViaje.Hito hito, Integer secuencia) {
         EvidenciaViaje evidencia = evidenciaViajeRepository.findByIdViajeAndHitoAndSecuencia(idViaje, hito, secuencia)
-                .orElseThrow(() -> new IllegalArgumentException("Evidencia no encontrada para idViaje: " + idViaje + ", hito: " + hito + ", secuencia: " + secuencia));
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Evidencia no encontrada para idViaje: " + idViaje +
+                                ", hito: " + hito + ", secuencia: " + secuencia));
         evidenciaViajeRepository.delete(evidencia);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public EvidenciaViajeResponse obtenerInfoEvidencia(String evidenciaId) {
         EvidenciaViaje evidencia = evidenciaViajeRepository.findById(evidenciaId)
                 .orElseThrow(() -> new IllegalArgumentException("Evidencia no encontrada: " + evidenciaId));
-        return convertToResponse(evidencia);
+        return convertToResponseWithBlob(evidencia);
     }
 
-    private EvidenciaViajeResponse convertToResponse(EvidenciaViaje evidencia) {
+    // ✅ Método privado para incluir BLOB
+    private EvidenciaViajeResponse convertToResponseWithBlob(EvidenciaViaje evidencia) {
         EvidenciaViajeResponse response = new EvidenciaViajeResponse();
         response.setId(evidencia.getId());
         response.setViajeId(evidencia.getIdViaje());
         response.setHito(evidencia.getHito());
         response.setSecuencia(evidencia.getSecuencia());
         response.setTipoAdjunto(evidencia.getTipoAdjunto());
-        response.setAdjunto(evidencia.getAdjunto());
+        response.setAdjunto(evidencia.getAdjunto()); // ✅ Incluye BLOB
         response.setNombreArchivo(evidencia.getNombreArchivo());
         response.setContentType(evidencia.getContentType());
         response.setTamanioArchivo(evidencia.getTamanioArchivo());
