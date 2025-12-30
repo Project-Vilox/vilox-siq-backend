@@ -43,7 +43,7 @@ public class EvidenciaViajeServiceImpl implements EvidenciaViajeService {
         evidencia.setAdjunto(adjuntoBytes);
         evidencia.setNombreArchivo(request.getNombreArchivo());
         evidencia.setContentType(request.getContentType());
-        evidencia.setTamanioArchivo(adjuntoBytes.length);
+        evidencia.setTamanioArchivo(Long.valueOf(adjuntoBytes.length));
         evidencia.setFechaCreacion(LocalDateTime.now());
         evidencia.setFechaActualizacion(LocalDateTime.now());
 
@@ -64,8 +64,8 @@ public class EvidenciaViajeServiceImpl implements EvidenciaViajeService {
     @Transactional(readOnly = true)
     public byte[] descargarEvidencia(String evidenciaId) {
         byte[] adjunto = evidenciaViajeRepository.findAdjuntoById(evidenciaId);
-        if (adjunto == null) {
-            throw new IllegalArgumentException("Evidencia no encontrada: " + evidenciaId);
+        if (adjunto == null || adjunto.length == 0) {
+            throw new IllegalArgumentException("El archivo no existe o está vacío para el id: " + evidenciaId);
         }
         return adjunto;
     }
