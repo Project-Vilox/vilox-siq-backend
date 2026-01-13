@@ -31,4 +31,9 @@ public interface ViajeService {
 
     // NUEVO MÉTODO LIGERO: Devuelve el DTO, pero sin la data pesada.
     List<ViajeResumenDto> listarViajesResumenPorEmpresa(String empresaId);
+
+    // Versiones LITE para operador y cliente
+    List<ViajeResumenDto> listarViajesResumenPorOperador(String operadorId);
+
+    List<ViajeResumenDto> listarViajesResumenPorCliente(String clienteId);
 }
