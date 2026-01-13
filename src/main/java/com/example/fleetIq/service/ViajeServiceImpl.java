@@ -254,6 +254,17 @@ public class ViajeServiceImpl implements ViajeService {
         .collect(Collectors.toList());
   }
 
+  @Override
+  @Transactional(readOnly = true)
+  public List<ViajeResumenDto> listarViajesResumenPorOperador(String operadorId) {
+    return viajeRepository.findViajesResumenByEmpresaOperadorId(operadorId);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public List<ViajeResumenDto> listarViajesResumenPorCliente(String clienteId) {
+    return viajeRepository.findViajesResumenByEmpresaClienteId(clienteId);
+  }
   // ════════════════════════════════════════════════════════════════════════════
   // 🔄 MÉTODOS DE MAPEO (Sin cambios)
   // ════════════════════════════════════════════════════════════════════════════

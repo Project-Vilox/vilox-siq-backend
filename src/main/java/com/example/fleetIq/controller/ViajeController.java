@@ -137,6 +137,38 @@ public class ViajeController {
         }
     }
 
+    @GetMapping("/lite/operador/{operadorId}")
+    public ResponseEntity<?> listarViajesPorOperadorLite(@PathVariable String operadorId) {
+        try {
+            logger.info("⚡ Buscando viajes (LIGEROS) para operador: {}", operadorId);
+            List<ViajeResumenDto> viajesLite = viajeService.listarViajesResumenPorOperador(operadorId);
+            logger.info("✅ Encontrados {} viajes LIGEROS para operador {}", viajesLite.size(), operadorId);
+            return ResponseEntity.ok(viajesLite);
+        } catch (Exception e) {
+            logger.error("❌ Error al buscar viajes (LIGEROS) para operador {}: {}", operadorId, e.getMessage(), e);
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Error al buscar viajes ligeros para operador",
+                    "operadorId", operadorId,
+                    "message", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/lite/cliente/{clienteId}")
+    public ResponseEntity<?> listarViajesPorClienteLite(@PathVariable String clienteId) {
+        try {
+            logger.info("⚡ Buscando viajes (LIGEROS) para cliente: {}", clienteId);
+            List<ViajeResumenDto> viajesLite = viajeService.listarViajesResumenPorCliente(clienteId);
+            logger.info("✅ Encontrados {} viajes LIGEROS para cliente {}", viajesLite.size(), clienteId);
+            return ResponseEntity.ok(viajesLite);
+        } catch (Exception e) {
+            logger.error("❌ Error al buscar viajes (LIGEROS) para cliente {}: {}", clienteId, e.getMessage(), e);
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Error al buscar viajes ligeros para cliente",
+                    "clienteId", clienteId,
+                    "message", e.getMessage()));
+        }
+    }
+
     @GetMapping("/lite/empresa/{empresaId}")
     public ResponseEntity<?> listarViajesPorEmpresaLite(@PathVariable String empresaId) {
         try {
