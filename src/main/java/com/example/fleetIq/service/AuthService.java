@@ -33,11 +33,12 @@ public class AuthService {
         // Usar el timestamp del servidor directamente
         long authTime = serverTime;
 
-        String md5Password = calculateMD5("expert2023");
+        String md5Password = calculateMD5("Expert$2026&");
         String signatureInput = md5Password + authTime;
         String signature = calculateMD5(signatureInput);
 
-        String urlString = "https://api.protrack365.com/api/authorization?time=" + authTime + "&account=expertsac&signature=" + signature;
+        String urlString = "https://api.protrack365.com/api/authorization?time=" + authTime
+                + "&account=expertsac&signature=" + signature;
         logger.info("🔗 URL de autenticación: {}", urlString);
 
         URL url = new URL(urlString);
@@ -71,8 +72,10 @@ public class AuthService {
     }
 
     /**
-     * Obtiene el timestamp actual del servidor de la API haciendo una solicitud inicial
-     * que deliberadamente fallará por timestamp incorrecto, pero nos devolverá el tiempo correcto
+     * Obtiene el timestamp actual del servidor de la API haciendo una solicitud
+     * inicial
+     * que deliberadamente fallará por timestamp incorrecto, pero nos devolverá el
+     * tiempo correcto
      */
     private long getCurrentServerTime() throws Exception {
         logger.info("🕐 Obteniendo timestamp del servidor...");
@@ -82,11 +85,12 @@ public class AuthService {
 
         try {
             // Hacer solicitud dummy para obtener el tiempo del servidor
-            String md5Password = calculateMD5("expert2023");
+            String md5Password = calculateMD5("Expert$2026&");
             String signatureInput = md5Password + localTime;
             String signature = calculateMD5(signatureInput);
 
-            String urlString = "https://api.protrack365.com/api/authorization?time=" + localTime + "&account=expertsac&signature=" + signature;
+            String urlString = "https://api.protrack365.com/api/authorization?time=" + localTime
+                    + "&account=expertsac&signature=" + signature;
 
             URL url = new URL(urlString);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -97,10 +101,12 @@ public class AuthService {
             String response = readResponse(conn.getInputStream());
             JSONObject json = new JSONObject(response);
 
-            // Si el código es 10014, es error de tiempo y contiene el timestamp del servidor
+            // Si el código es 10014, es error de tiempo y contiene el timestamp del
+            // servidor
             if (json.getInt("code") == 10014) {
                 String message = json.getString("message");
-                // Extraer timestamp del mensaje: "request time error, current server time is 1759618794 (in unix timestamp)"
+                // Extraer timestamp del mensaje: "request time error, current server time is
+                // 1759618794 (in unix timestamp)"
                 if (message.contains("current server time is")) {
                     String timestampStr = message.replaceAll(".*current server time is (\\d+).*", "$1");
                     long serverTime = Long.parseLong(timestampStr);
@@ -109,7 +115,8 @@ public class AuthService {
                 }
             }
 
-            // Si no hay error de tiempo, significa que nuestro tiempo local está bien sincronizado
+            // Si no hay error de tiempo, significa que nuestro tiempo local está bien
+            // sincronizado
             if (json.getInt("code") == 0) {
                 logger.info("✅ Tiempo local sincronizado con servidor");
                 return localTime;
