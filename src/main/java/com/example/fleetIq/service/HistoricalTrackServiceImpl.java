@@ -28,11 +28,12 @@ public class HistoricalTrackServiceImpl implements HistoricalTrackService {
 
     private String getAccessToken() throws Exception {
         long time = Instant.now().getEpochSecond();
-        String md5Password = calculateMD5("expert2023");
+        String md5Password = calculateMD5("Expert$2026&");
         String signatureInput = md5Password + time;
         String signature = calculateMD5(signatureInput);
 
-        URL url = new URL("http://api.protrack365.com/api/authorization?time=" + time + "&account=expertsac&signature=" + signature);
+        URL url = new URL("http://api.protrack365.com/api/authorization?time=" + time + "&account=expertsac&signature="
+                + signature);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
 
@@ -80,7 +81,8 @@ public class HistoricalTrackServiceImpl implements HistoricalTrackService {
         // Recopilar todos los IMEIs en una lista
         StringBuilder imeis = new StringBuilder();
         for (com.example.fleetIq.model.Device device : devices) {
-            if (imeis.length() > 0) imeis.append(",");
+            if (imeis.length() > 0)
+                imeis.append(",");
             imeis.append(device.getImei());
         }
 
@@ -93,7 +95,8 @@ public class HistoricalTrackServiceImpl implements HistoricalTrackService {
         boolean hasMore = true;
 
         while (hasMore) {
-            URL url = new URL("http://api.protrack365.com/api/track?access_token=" + accessToken + "&imeis=" + imeis + "&begin_time=" + beginTime + "&end_time=" + endTime + "&page=" + page + "&pagesize=" + pagesize);
+            URL url = new URL("http://api.protrack365.com/api/track?access_token=" + accessToken + "&imeis=" + imeis
+                    + "&begin_time=" + beginTime + "&end_time=" + endTime + "&page=" + page + "&pagesize=" + pagesize);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
 
@@ -123,7 +126,9 @@ public class HistoricalTrackServiceImpl implements HistoricalTrackService {
                         track.setAccStatus(record.optBoolean("accstatus", false));
                         track.setVoltage(record.optDouble("voltage", 0.0));
                         // Guardar solo si no existe
-                        if (historicalTrackRepository.findByImeiAndTimeBetween(track.getImei(), track.getTime(), track.getTime()).isEmpty()) {
+                        if (historicalTrackRepository
+                                .findByImeiAndTimeBetween(track.getImei(), track.getTime(), track.getTime())
+                                .isEmpty()) {
                             historicalTrackRepository.save(track);
                         }
                     }

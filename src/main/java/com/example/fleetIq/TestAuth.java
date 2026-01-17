@@ -1,6 +1,5 @@
 package com.example.fleetIq;
 
-
 import com.example.fleetIq.api.Protrack365ApiClient;
 import com.example.fleetIq.model.AuthResponse;
 import org.json.JSONObject;
@@ -16,7 +15,7 @@ public class TestAuth {
     private static final String API_BASE_URI = "http://api.protrack365.com";
     private static final String AUTH_ENDPOINT = "/api/authorization";
     private static final String ACCOUNT = "expertsac";
-    private static final String PASSWORD = "expert2023";
+    private static final String PASSWORD = "Expert$2026&";
 
     // Utility method to calculate MD5 hash
     private static String calculateMD5(String input) throws Exception {
