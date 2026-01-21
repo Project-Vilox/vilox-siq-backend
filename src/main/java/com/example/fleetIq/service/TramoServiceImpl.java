@@ -86,21 +86,87 @@ public class TramoServiceImpl implements TramoService {
 
     @PostConstruct
     public void init() {
-        // lastProcessedAlarmId = 16217L;
+        // lastProcessedAlarmId = 17873L;
         lastProcessedAlarmId = alarmRepository.findMaxAlarmId().orElse(0L);
         System.out.println("🚀 TramoService inicializado. Última alarma procesada: " + lastProcessedAlarmId);
         System.out.println("⚠️ Las alarmas anteriores a este ID serán ignoradas");
     }
 
+    // @Scheduled(fixedRate = 3000)
+    // @Transactional // 1. Mantiene la sesión abierta para todo el lote (evita N+1
+    // y
+    // // LazyInitException)
+    // public void procesarNuevasAlarmas() {
+    // try {
+    // List<Alarm> nuevasAlarmas =
+    // alarmRepository.findNewAlarms(lastProcessedAlarmId);
+
+    // if (!nuevasAlarmas.isEmpty()) {
+    // System.out.println("🔔 Procesando " + nuevasAlarmas.size() + " nuevas
+    // alarmas...");
+
+    // for (Alarm alarm : nuevasAlarmas) {
+    // try {
+    // procesarAlarma(alarm);
+    // lastProcessedAlarmId = alarm.getId();
+    // } catch (Exception e) {
+    // System.err.println("❌ Error procesando alarma ID " + alarm.getId() + ": " +
+    // e.getMessage());
+    // e.printStackTrace();
+    // }
+    // }
+
+    // System.out.println("✅ Alarmas procesadas hasta ID: " + lastProcessedAlarmId);
+    // }
+    // } catch (Exception e) {
+    // System.err.println("❌ Error en procesamiento automático de alarmas: " +
+    // e.getMessage());
+    // e.printStackTrace();
+    // }
+    // }
     @Scheduled(fixedRate = 3000)
-    @Transactional // 1. Mantiene la sesión abierta para todo el lote (evita N+1 y
-                   // LazyInitException)
+    @Transactional
     public void procesarNuevasAlarmas() {
         try {
             List<Alarm> nuevasAlarmas = alarmRepository.findNewAlarms(lastProcessedAlarmId);
 
             if (!nuevasAlarmas.isEmpty()) {
+                // ✅ ORDENAR POR TIMESTAMP CRONOLÓGICO
+                nuevasAlarmas.sort((a1, a2) -> {
+                    Long t1 = obtenerTimestampRelevante(a1);
+                    Long t2 = obtenerTimestampRelevante(a2);
+
+                    int timeCompare = Long.compare(t1, t2);
+
+                    // Si timestamps son IGUALES, priorizar EXIT antes que ENTRY
+                    // (el vehículo primero sale de interna, luego entra a externa)
+                    if (timeCompare == 0) {
+                        int priority1 = getPrioridad(a1);
+                        int priority2 = getPrioridad(a2);
+                        return Integer.compare(priority1, priority2);
+                    }
+
+                    return timeCompare;
+                });
+
                 System.out.println("🔔 Procesando " + nuevasAlarmas.size() + " nuevas alarmas...");
+                System.out.println("📋 Orden cronológico:");
+
+                for (int i = 0; i < nuevasAlarmas.size(); i++) {
+                    Alarm alarm = nuevasAlarmas.get(i);
+                    Long timestamp = obtenerTimestampRelevante(alarm);
+                    LocalDateTime fecha = LocalDateTime.ofInstant(
+                            Instant.ofEpochSecond(timestamp),
+                            ZONA_PERU);
+
+                    System.out.println(String.format("   %d. ID=%d | %s | %s | Geocerca=%d | %s",
+                            i + 1,
+                            alarm.getId(),
+                            alarm.getAlarmType(),
+                            fecha.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
+                            alarm.getGeofenceId(),
+                            alarm.getImei()));
+                }
 
                 for (Alarm alarm : nuevasAlarmas) {
                     try {
@@ -117,6 +183,35 @@ public class TramoServiceImpl implements TramoService {
         } catch (Exception e) {
             System.err.println("❌ Error en procesamiento automático de alarmas: " + e.getMessage());
             e.printStackTrace();
+        }
+    }
+
+    // Obtiene el timestamp más relevante de una alarma
+
+    private Long obtenerTimestampRelevante(Alarm alarm) {
+        if ("ENTRY".equals(alarm.getAlarmType())) {
+            return alarm.getEntryTime() != null ? alarm.getEntryTime() : alarm.getExitTime();
+        } else if ("EXIT".equals(alarm.getAlarmType())) {
+            return alarm.getExitTime() != null ? alarm.getExitTime() : alarm.getEntryTime();
+        } else {
+            // ENTRY_EXIT o desconocido
+            return alarm.getEntryTime() != null ? alarm.getEntryTime() : alarm.getExitTime();
+        }
+    }
+
+    // Asigna prioridad cuando timestamps son iguales
+    // Menor número = mayor prioridad
+
+    private int getPrioridad(Alarm alarm) {
+        String tipo = alarm.getAlarmType();
+
+        // En caso de timestamps iguales, procesamos en este orden:
+        if ("EXIT".equals(tipo)) {
+            return 1; // Primera prioridad: salidas (sale de interna primero)
+        } else if ("ENTRY".equals(tipo)) {
+            return 2; // Segunda prioridad: entradas (entra a externa después)
+        } else {
+            return 3; // ENTRY_EXIT al final
         }
     }
 
@@ -244,12 +339,29 @@ public class TramoServiceImpl implements TramoService {
                 tramo.getHoraEntradaGeocercaExternaOrigen() == null) {
 
             tramo.setHoraEntradaGeocercaExternaOrigen(timestamp);
-            tramo.setHoraLlegadaReal(timestamp); // ✅ Compatibilidad legacy
+            tramo.setHoraLlegadaReal(timestamp);
             tramo.setEstado(Tramo.EstadoTramo.en_curso);
             tramoActualizado = true;
 
             System.out.println("✅ ORIGEN [1/6] - Entrada Externa (desde calle)");
             System.out.println("   📊 Estado: EN_CURSO");
+
+            // 🆕 PRE-CALCULAR COORDENADAS DE ORIGEN Y DESTINO
+            System.out.println("📍 Pre-calculando coordenadas para el tramo...");
+
+            CoordenadaDto coordsOrigen = obtenerCoordenadasEstablecimiento(origen.getId());
+            if (coordsOrigen != null) {
+                System.out.println("   ✅ Origen: [" + coordsOrigen.latitud + ", " + coordsOrigen.longitud + "]");
+            } else {
+                System.out.println("   ⚠️ No se pudieron calcular coordenadas del origen");
+            }
+
+            CoordenadaDto coordsDestino = obtenerCoordenadasEstablecimiento(destino.getId());
+            if (coordsDestino != null) {
+                System.out.println("   ✅ Destino: [" + coordsDestino.latitud + ", " + coordsDestino.longitud + "]");
+            } else {
+                System.out.println("   ⚠️ No se pudieron calcular coordenadas del destino");
+            }
         }
 
         // 2️⃣ PRIMERA SALIDA de Externa (acceso → patio)
@@ -570,6 +682,18 @@ public class TramoServiceImpl implements TramoService {
                 // 🆕 AGREGAR ESTAS LÍNEAS - HERENCIA DE CAMPOS LEGACY
                 siguienteTramo.setHoraLlegadaReal(tramoCompletado.getHoraEntradaGeocercaExternaDestino());
                 siguienteTramo.setHoraSalidaReal(tramoCompletado.getHoraSalidaGeocercaExternaDestino2());
+                // 🆕 PRE-CALCULAR COORDENADAS DEL SIGUIENTE DESTINO
+                System.out.println("📍 Pre-calculando coordenadas del siguiente destino...");
+                Establecimiento siguienteDestino = siguienteTramo.getEstablecimientoDestino();
+                if (siguienteDestino != null) {
+                    CoordenadaDto coordsDestino = obtenerCoordenadasEstablecimiento(siguienteDestino.getId());
+                    if (coordsDestino != null) {
+                        System.out.println("   ✅ Destino #" + ordenSiguiente + ": ["
+                                + coordsDestino.latitud + ", " + coordsDestino.longitud + "]");
+                    } else {
+                        System.out.println("   ⚠️ No se pudieron calcular coordenadas del destino");
+                    }
+                }
                 // 8. Activar
                 siguienteTramo.setEstado(Tramo.EstadoTramo.en_curso);
 
