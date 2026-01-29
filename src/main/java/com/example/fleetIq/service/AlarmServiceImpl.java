@@ -33,9 +33,9 @@ public class AlarmServiceImpl implements AlarmService {
     private DuplicateAlarmRepository duplicateAlarmRepository;
 
     // ⭐ CONFIGURACIÓN DE ANTI-REBOTE (para geocercas adyacentes)
-    private static final long DEBOUNCE_SECONDS = 120; // 2 minutos para geocercas cercanas
-    private static final double MIN_DISTANCE_METERS = 80; // 80 metros mínimo
-    private static final double ADJACENT_GEOFENCE_THRESHOLD = 150.0; // Considerar adyacentes si están a <150m
+    private static final long DEBOUNCE_SECONDS = 30; // 30 seg para geocercas cercanas
+    private static final double MIN_DISTANCE_METERS = 30; // 30 metros mínimo
+    private static final double ADJACENT_GEOFENCE_THRESHOLD = 100.0; // Considerar adyacentes si están a <150m
 
     @Scheduled(fixedRate = 2000)
     public void checkAlarmsAutomatically() {
