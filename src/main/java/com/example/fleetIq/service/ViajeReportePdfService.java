@@ -509,7 +509,7 @@ public class ViajeReportePdfService {
                     .append("</td></tr>");
         }
         if (datos.getOperadorLogistico() != null) {
-            html.append("<tr><td class='label'>Operador Logístico:</td><td>")
+            html.append("<tr><td class='label'>Generador De Carga:</td><td>")
                     .append(datos.getOperadorLogistico().getNombre()).append("</td></tr>");
         }
         if (datos.getNaviera() != null) {
@@ -551,12 +551,12 @@ public class ViajeReportePdfService {
         html.append("<table class='info-table'>");
 
         if (datos.getFechaInicioProgramada() != null) {
-            html.append("<tr><td class='label'>Inicio Programado:</td><td>")
+            html.append("<tr><td class='label'>Posicionamiento En Inicio:</td><td>")
                     .append(formatHora(datos.getFechaInicioProgramada())).append("</td></tr>");
         }
 
         if (datos.getFechaFinProgramada() != null) {
-            html.append("<tr><td class='label'>Fin Programado:</td><td>")
+            html.append("<tr><td class='label'>Posicionamiento En Destino:</td><td>")
                     .append(formatHora(datos.getFechaFinProgramada())).append("</td></tr>");
         }
 
