@@ -126,10 +126,11 @@ public class ViajeReportePdfService {
 
         if (viaje.getCarreta() != null) {
             ViajeReporteDetalleDto.VehiculoInfo carreta = new ViajeReporteDetalleDto.VehiculoInfo();
+            // Confirmado: CAR-0005 está en el campo 'placa' de la carreta
             carreta.setPlaca(viaje.getCarreta().getPlaca());
             carreta.setMarca(viaje.getCarreta().getMarca());
             carreta.setModelo(viaje.getCarreta().getModelo());
-            carreta.setTipoVehiculo(viaje.getCarreta().getTipoVehiculo().name()); // Convert enum to string
+            carreta.setTipoVehiculo(viaje.getCarreta().getTipoVehiculo().name());
             dto.setCarreta(carreta);
         }
 
@@ -137,7 +138,7 @@ public class ViajeReportePdfService {
         List<Tramo> tramos = tramoRepository.findByViajeId(viaje.getId());
         List<ViajeReporteDetalleDto.TramoInfo> tramosInfo = tramos.stream().map(t -> {
             ViajeReporteDetalleDto.TramoInfo info = new ViajeReporteDetalleDto.TramoInfo();
-            info.setNumero(t.getOrden()); // Corrected field name
+            info.setNumero(t.getOrden() != null ? t.getOrden() : 0);
             if (t.getEstablecimientoOrigen() != null) {
                 info.setNombreOrigen(t.getEstablecimientoOrigen().getNombre());
                 info.setTipoOrigen(t.getEstablecimientoOrigen().getTipo());
@@ -146,17 +147,17 @@ public class ViajeReportePdfService {
                 info.setNombreDestino(t.getEstablecimientoDestino().getNombre());
                 info.setTipoDestino(t.getEstablecimientoDestino().getTipo());
             }
-            info.setFechaHoraCita1(t.getHoraLlegadaProgramada()); // Using available fields
-            info.setFechaHoraCita2(t.getHoraSalidaProgramada()); // Using available fields
-            info.setHoraInicioReal(t.getHoraLlegadaReal()); // Corrected field name
-            info.setHoraFinReal(t.getHoraSalidaReal()); // Corrected field name
-            info.setTardanzaCita1(t.getTardanzaCita1());
-            info.setTardanzaCita2(t.getTardanzaCita2());
-            info.setTiempoAtencionCita1(t.getTiempoAtencionCita1());
-            info.setTiempoAtencionCita2(t.getTiempoAtencionCita2());
-            info.setTiempoPermanenciaCita1(t.getTiempoPermanenciaCita1());
-            info.setTiempoPermanenciaCita2(t.getTiempoPermanenciaCita2());
-            info.setEstado(t.getEstado().name()); // Convert enum to string
+            info.setFechaHoraCita1(t.getHoraLlegadaProgramada());
+            info.setFechaHoraCita2(t.getHoraSalidaProgramada());
+            info.setHoraInicioReal(t.getHoraLlegadaReal());
+            info.setHoraFinReal(t.getHoraSalidaReal());
+            info.setTardanzaCita1(t.getTardanzaCita1() != null ? t.getTardanzaCita1() : 0);
+            info.setTardanzaCita2(t.getTardanzaCita2() != null ? t.getTardanzaCita2() : 0);
+            info.setTiempoAtencionCita1(t.getTiempoAtencionCita1() != null ? t.getTiempoAtencionCita1() : 0);
+            info.setTiempoAtencionCita2(t.getTiempoAtencionCita2() != null ? t.getTiempoAtencionCita2() : 0);
+            info.setTiempoPermanenciaCita1(t.getTiempoPermanenciaCita1() != null ? t.getTiempoPermanenciaCita1() : 0);
+            info.setTiempoPermanenciaCita2(t.getTiempoPermanenciaCita2() != null ? t.getTiempoPermanenciaCita2() : 0);
+            info.setEstado(t.getEstado() != null ? t.getEstado().name() : "DESCONOCIDO");
             return info;
         }).collect(Collectors.toList());
         dto.setTramos(tramosInfo);
@@ -166,29 +167,57 @@ public class ViajeReportePdfService {
         dto.setParadasDetectadas(paradasDetectadas);
 
         // Evidencias - obtener entidades completas con datos binarios
-        List<EvidenciaViaje> evidencias = evidenciaViajeRepository.findAll().stream()
-                .filter(e -> viaje.getId().equals(e.getIdViaje()))
+        List<EvidenciaViaje> evidencias = evidenciaViajeRepository.findByIdViaje(viaje.getId()).stream()
                 .sorted((a, b) -> {
                     // Ordenar primero por hito, luego por secuencia
+                    if (a.getHito() == null && b.getHito() == null)
+                        return 0;
+                    if (a.getHito() == null)
+                        return 1;
+                    if (b.getHito() == null)
+                        return -1;
+
                     int hitoCompare = a.getHito().compareTo(b.getHito());
                     if (hitoCompare != 0)
                         return hitoCompare;
+
+                    if (a.getSecuencia() == null && b.getSecuencia() == null)
+                        return 0;
+                    if (a.getSecuencia() == null)
+                        return 1;
+                    if (b.getSecuencia() == null)
+                        return -1;
+
                     return Integer.compare(a.getSecuencia(), b.getSecuencia());
                 })
                 .collect(Collectors.toList());
 
         List<ViajeReporteDetalleDto.EvidenciaInfo> evidenciasInfo = evidencias.stream().map(e -> {
             ViajeReporteDetalleDto.EvidenciaInfo info = new ViajeReporteDetalleDto.EvidenciaInfo();
-            info.setHito(e.getHito().toString());
-            info.setSecuencia(e.getSecuencia());
-            info.setTipoAdjunto(e.getTipoAdjunto().name());
-            info.setNombreArchivo(e.getNombreArchivo());
+            info.setHito(e.getHito() != null ? e.getHito().toString() : "SIN_HITO");
+            info.setSecuencia(e.getSecuencia() != null ? e.getSecuencia() : 0);
+            info.setTipoAdjunto(e.getTipoAdjunto() != null ? e.getTipoAdjunto().name() : "DESCONOCIDO");
+            info.setNombreArchivo(e.getNombreArchivo() != null ? e.getNombreArchivo() : "archivo_sin_nombre");
             info.setFechaUpload(e.getFechaCreacion());
             info.setUrlArchivo("");
 
-            // Incluir datos binarios solo si es imagen y tiene datos
-            if (e.getTipoAdjunto() == EvidenciaViaje.TipoAdjunto.IMAGEN && e.getAdjunto() != null) {
-                info.setImagenData(e.getAdjunto());
+            // Incluir datos del path para cargar la imagen del disco
+            if (e.getTipoAdjunto() == EvidenciaViaje.TipoAdjunto.IMAGEN && e.getPathArchivo() != null) {
+                try {
+                    // El path en DB suele ser 'evidencias/archivo.jpg'
+                    // Debemos construir la ruta absoluta hacia
+                    // vilox.api/storage/app/public/evidencias
+                    String basePath = "c:/Users/yarle/OneDrive/Documentos/Trabajo/Vilox v3/Vilox v3/vilox.api/storage/app/public/";
+                    java.nio.file.Path fullPath = java.nio.file.Paths.get(basePath, e.getPathArchivo());
+
+                    if (java.nio.file.Files.exists(fullPath)) {
+                        info.setImagenData(java.nio.file.Files.readAllBytes(fullPath));
+                    } else {
+                        logger.warn("⚠️ Archivo de evidencia no encontrado en disco: {}", fullPath);
+                    }
+                } catch (Exception ex) {
+                    logger.error("❌ Error al leer archivo de imagen {}: {}", e.getPathArchivo(), ex.getMessage());
+                }
             }
 
             return info;
@@ -225,7 +254,9 @@ public class ViajeReportePdfService {
         // Paradas
         if (paradas != null) {
             metricas.setParadasTotales(paradas.size());
-            long justificadas = paradas.stream().filter(ViajeReporteDetalleDto.ParadaInfo::getJustificada).count();
+            long justificadas = paradas.stream()
+                    .filter(p -> p.getJustificada() != null && p.getJustificada())
+                    .count();
             metricas.setParadasJustificadas((int) justificadas);
         }
 
@@ -491,8 +522,8 @@ public class ViajeReportePdfService {
                 .append("</td></tr>");
         html.append("<tr><td class='label'>Documento de Embarque:</td><td>").append(safe(datos.getDocumentoEmbarque()))
                 .append("</td></tr>");
-        html.append("<tr><td class='label'>Estado:</td><td class='estado-").append(datos.getEstado()).append("'>")
-                .append(datos.getEstado().toUpperCase()).append("</td></tr>");
+        html.append("<tr><td class='label'>Estado:</td><td class='estado-").append(safe(datos.getEstado())).append("'>")
+                .append(safe(datos.getEstado()).toUpperCase()).append("</td></tr>");
         html.append("</table>");
         html.append("</div>");
 
@@ -531,7 +562,7 @@ public class ViajeReportePdfService {
             html.append("</td></tr>");
         }
         if (datos.getVehiculo() != null) {
-            html.append("<tr><td class='label'>Vehículo:</td><td>").append(datos.getVehiculo().getPlaca());
+            html.append("<tr><td class='label'>Remolcador:</td><td>").append(datos.getVehiculo().getPlaca());
             if (datos.getVehiculo().getMarca() != null || datos.getVehiculo().getModelo() != null) {
                 html.append(" (").append(safe(datos.getVehiculo().getMarca())).append(" ")
                         .append(safe(datos.getVehiculo().getModelo())).append(")");
@@ -948,13 +979,25 @@ public class ViajeReportePdfService {
         for (ViajeReporteDetalleDto.EvidenciaInfo evidencia : evidencias) {
             html.append("<div class='photo-item'>");
 
-            // Embedder la imagen en base64 si está disponible
+            // Embedder la imagen en base64 si está disponible (con límite de tamaño
+            // preventivo)
             if (evidencia.getImagenData() != null && evidencia.getImagenData().length > 0) {
-                String base64Image = java.util.Base64.getEncoder().encodeToString(evidencia.getImagenData());
-                html.append("<img src='data:image/jpeg;base64,").append(base64Image).append("' ");
-                html.append("alt='").append(safe(evidencia.getNombreArchivo())).append("' />");
+                if (evidencia.getImagenData().length > 1024 * 1024 * 2) { // 2MB max per image in PDF
+                    html.append("<div class='no-image'>Imagen demasiado grande para el reporte de trazabilidad (")
+                            .append(String.format("%.1f", evidencia.getImagenData().length / 1024.0 / 1024.0))
+                            .append(" MB)</div>");
+                } else {
+                    try {
+                        String base64Image = java.util.Base64.getEncoder().encodeToString(evidencia.getImagenData());
+                        html.append("<img src='data:image/jpeg;base64,").append(base64Image).append("' ");
+                        html.append("alt='").append(safe(evidencia.getNombreArchivo())).append("' />");
+                    } catch (Exception ex) {
+                        html.append("<div class='no-image'>Error cargando esta imagen: ").append(ex.getMessage())
+                                .append("</div>");
+                    }
+                }
             } else {
-                html.append("<div class='no-image'>Sin imagen</div>");
+                html.append("<div class='no-image'>Sin imagen o datos binarios vacíos</div>");
             }
 
             html.append("<p class='photo-caption'>");

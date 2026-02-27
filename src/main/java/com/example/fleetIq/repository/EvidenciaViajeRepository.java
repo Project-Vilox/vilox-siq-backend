@@ -20,13 +20,14 @@ public interface EvidenciaViajeRepository extends JpaRepository<EvidenciaViaje, 
                         "ORDER BY e.secuencia ASC")
         List<EvidenciaViajeResponse> findMetadataByIdViaje(@Param("viajeId") String viajeId);
 
-        // ✅ Query para obtener solo el BLOB
-        // Cambia esto en EvidenciaViajeRepository.java
-        @Query(value = "SELECT adjunto FROM evidencias_viajes WHERE id = :id", nativeQuery = true)
-        byte[] findAdjuntoById(@Param("id") String id);
+        // El archivo se obtiene ahora desde el disco físico.
 
         Optional<EvidenciaViaje> findByIdViajeAndHitoAndSecuencia(
                         String idViaje,
                         EvidenciaViaje.Hito hito,
                         Integer secuencia);
+
+        // ✅ Query para obtener todas las evidencias de un viaje (con BLOB) de forma
+        // eficiente
+        List<EvidenciaViaje> findByIdViaje(String idViaje);
 }

@@ -3,10 +3,7 @@ package com.example.fleetIq.model;
 import jakarta.persistence.*;
 import lombok.Data;
 
-import java.sql.Types;
 import java.time.LocalDateTime;
-
-import org.hibernate.annotations.JdbcTypeCode;
 
 @Data
 @Entity
@@ -31,9 +28,11 @@ public class EvidenciaViaje {
     @Column(name = "tipo_adjunto", nullable = false)
     private TipoAdjunto tipoAdjunto;
 
-    @JdbcTypeCode(Types.VARBINARY) // Esto asegura que mapee correctamente a bytea
-    @Column(name = "adjunto", nullable = false)
-    private byte[] adjunto;
+    @Column(name = "url_archivo")
+    private String urlArchivo;
+
+    @Column(name = "path_archivo")
+    private String pathArchivo;
 
     @Column(name = "nombre_archivo", nullable = false)
     private String nombreArchivo;

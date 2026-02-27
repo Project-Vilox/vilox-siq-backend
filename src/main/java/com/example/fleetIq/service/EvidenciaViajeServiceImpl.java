@@ -40,13 +40,14 @@ public class EvidenciaViajeServiceImpl implements EvidenciaViajeService {
         evidencia.setHito(request.getHito());
         evidencia.setSecuencia(request.getSecuencia());
         evidencia.setTipoAdjunto(EvidenciaViaje.TipoAdjunto.valueOf(request.getTipoAdjunto()));
-        evidencia.setAdjunto(adjuntoBytes);
         evidencia.setNombreArchivo(request.getNombreArchivo());
         evidencia.setContentType(request.getContentType());
         evidencia.setTamanioArchivo(Long.valueOf(adjuntoBytes.length));
         evidencia.setFechaCreacion(LocalDateTime.now());
         evidencia.setFechaActualizacion(LocalDateTime.now());
 
+        // El path_archivo lo debe poner Laravel o debemos guardarlo aquí físicamente
+        // Por ahora dejamos que se cree la entrada sin el binario en la DB
         evidencia = evidenciaViajeRepository.save(evidencia);
 
         // ✅ Devolver CON el BLOB para el preview inmediato
@@ -63,11 +64,19 @@ public class EvidenciaViajeServiceImpl implements EvidenciaViajeService {
     @Override
     @Transactional(readOnly = true)
     public byte[] descargarEvidencia(String evidenciaId) {
-        byte[] adjunto = evidenciaViajeRepository.findAdjuntoById(evidenciaId);
-        if (adjunto == null || adjunto.length == 0) {
-            throw new IllegalArgumentException("El archivo no existe o está vacío para el id: " + evidenciaId);
+        EvidenciaViaje evidencia = evidenciaViajeRepository.findById(evidenciaId)
+                .orElseThrow(() -> new IllegalArgumentException("Evidencia no encontrada: " + evidenciaId));
+
+        if (evidencia.getPathArchivo() != null) {
+            try {
+                String basePath = "c:/Users/yarle/OneDrive/Documentos/Trabajo/Vilox v3/Vilox v3/vilox.api/storage/app/public/";
+                java.nio.file.Path path = java.nio.file.Paths.get(basePath, evidencia.getPathArchivo());
+                return java.nio.file.Files.readAllBytes(path);
+            } catch (Exception e) {
+                throw new RuntimeException("Error al leer el archivo físico: " + e.getMessage());
+            }
         }
-        return adjunto;
+        throw new IllegalArgumentException("La evidencia no tiene un archivo físico asociado");
     }
 
     @Override
@@ -104,7 +113,7 @@ public class EvidenciaViajeServiceImpl implements EvidenciaViajeService {
         response.setHito(evidencia.getHito());
         response.setSecuencia(evidencia.getSecuencia());
         response.setTipoAdjunto(evidencia.getTipoAdjunto());
-        response.setAdjunto(evidencia.getAdjunto()); // ✅ Incluye BLOB
+        // No hay adjunto directo
         response.setNombreArchivo(evidencia.getNombreArchivo());
         response.setContentType(evidencia.getContentType());
         response.setTamanioArchivo(evidencia.getTamanioArchivo());
