@@ -18,7 +18,9 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -26,13 +28,77 @@ import java.util.stream.Collectors;
 public class ViajeReportePdfService {
 
     private static final Logger logger = LoggerFactory.getLogger(ViajeReportePdfService.class);
-    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("dd/MM/yyyy");
     private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
 
     private final ViajeRepository viajeRepository;
     private final TramoRepository tramoRepository;
     private final EvidenciaViajeRepository evidenciaViajeRepository;
     private final TrackRepository trackRepository;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Definición de sesiones de evidencias (igual que evidenciasSets en React)
+    // ─────────────────────────────────────────────────────────────────────────
+    private static class FotoSet {
+        final String nombre;
+        final boolean obligatorio;
+        FotoSet(String n, boolean o) { this.nombre = n; this.obligatorio = o; }
+        String nombre() { return nombre; }
+        boolean obligatorio() { return obligatorio; }
+    }
+
+    private static class HitoSet {
+        final String hito;
+        final String nombreUi;
+        final List<FotoSet> fotos;
+        HitoSet(String h, String u, List<FotoSet> f) { this.hito = h; this.nombreUi = u; this.fotos = f; }
+        String hito() { return hito; }
+        String nombreUi() { return nombreUi; }
+        List<FotoSet> fotos() { return fotos; }
+    }
+
+    private static List<FotoSet> fo(FotoSet... s) { return java.util.Arrays.asList(s); }
+    private static FotoSet fp(String n, boolean o) { return new FotoSet(n, o); }
+
+    private static final List<HitoSet> EVIDENCIAS_SETS;
+    static {
+        EVIDENCIAS_SETS = java.util.Arrays.asList(
+            new HitoSet("PREVIO_SERVICIO", "Previo al servicio", fo(
+                fp("Booking", true), fp("Carta de precinto", true), fp("Carta de temperatura", false)
+            )),
+            new HitoSet("LLEGADA_DEPOT", "Llegada al depot", fo(
+                fp("Registro", false), fp("Foto exterior de depot", true)
+            )),
+            new HitoSet("SALIDA_DEPOT", "Salida depot", fo(
+                fp("EIR", true), fp("Precinto de aduana", true), fp("Precinto de linea", true),
+                fp("Puerta de contenedor", true), fp("Precinto de puerta", true),
+                fp("Maquinaria contenedor", false), fp("Ventilas de reefer", false),
+                fp("Thermoregistros", false), fp("Filtros", false),
+                fp("Cortina", false), fp("Sensores", false)
+            )),
+            new HitoSet("INGRESO_SALIDA_COCHERA", "Ingreso - Salida cochera", fo(
+                fp("Pernocte en cochera - Ingreso", true), fp("Precinto de puerta - Salida", true)
+            )),
+            new HitoSet("LLEGADA_PLANTA", "Llegada a planta", fo(
+                fp("Precinto de puerta - Salida", true),
+                fp("Foto exterior de planta", true),
+                fp("Temperatura de reefer", false)
+            )),
+            new HitoSet("TERMINO_CARGA", "Termino de carga", fo(
+                fp("Guia de remision remitente", true), fp("Guia transportista", true),
+                fp("Pesos y medidas", true), fp("Puerta de contenedor", true),
+                fp("Precinto de linea", true), fp("Precinto aduana", true),
+                fp("Precinto SENASA-SANIPES", true),
+                fp("Precinto exportador", false), fp("Temperatura reefer", false)
+            )),
+            new HitoSet("LLEGADA_PUERTO", "Llegada a puerto", fo(
+                fp("Registro", false), fp("Foto exterior de puerto", true),
+                fp("Puerta de contenedor", false), fp("Temperatura reefer", false)
+            )),
+            new HitoSet("SALIDA_PUERTO", "Salida de puerto", fo(
+                fp("Ticket de balanza", true)
+            ))
+        );
+    }
 
     /**
      * Genera el PDF del reporte de trazabilidad para un viaje
@@ -199,25 +265,53 @@ public class ViajeReportePdfService {
             info.setTipoAdjunto(e.getTipoAdjunto() != null ? e.getTipoAdjunto().name() : "DESCONOCIDO");
             info.setNombreArchivo(e.getNombreArchivo() != null ? e.getNombreArchivo() : "archivo_sin_nombre");
             info.setFechaUpload(e.getFechaCreacion());
-            info.setUrlArchivo("");
+            info.setUrlArchivo(e.getUrlArchivo() != null ? e.getUrlArchivo() : "");
 
-            // Incluir datos del path para cargar la imagen del disco
-            if (e.getTipoAdjunto() == EvidenciaViaje.TipoAdjunto.IMAGEN && e.getPathArchivo() != null) {
+            // Descargar el archivo igual que lo hace el frontend: via URL HTTP primero,
+            // con fallback a lectura de disco si la URL falla.
+            byte[] fileBytes = null;
+
+            // ── Opción 1: Descarga via URL (igual que el frontend) ──────────────
+            if (e.getUrlArchivo() != null && !e.getUrlArchivo().isEmpty()) {
                 try {
-                    // El path en DB suele ser 'evidencias/archivo.jpg'
-                    // Debemos construir la ruta absoluta hacia
-                    // vilox.api/storage/app/public/evidencias
+                    java.net.URL url = java.net.URI.create(e.getUrlArchivo()).toURL();
+                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                    conn.setConnectTimeout(5000);
+                    conn.setReadTimeout(15000);
+                    conn.setRequestMethod("GET");
+                    int status = conn.getResponseCode();
+                    if (status == 200) {
+                        try (java.io.InputStream stream = conn.getInputStream()) {
+                            fileBytes = stream.readAllBytes();
+                        }
+                        logger.info("✅ Evidencia descargada via URL: {} ({} bytes)", e.getUrlArchivo(), fileBytes.length);
+                    } else {
+                        logger.warn("⚠️ HTTP {} al descargar evidencia: {}", status, e.getUrlArchivo());
+                    }
+                    conn.disconnect();
+                } catch (Exception ex) {
+                    logger.warn("⚠️ No se pudo descargar via URL {}: {}", e.getUrlArchivo(), ex.getMessage());
+                }
+            }
+
+            // ── Opción 2: Fallback a lectura de disco ────────────────────────────
+            if (fileBytes == null && e.getPathArchivo() != null) {
+                try {
                     String basePath = "c:/Users/yarle/OneDrive/Documentos/Trabajo/Vilox v3/Vilox v3/vilox.api/storage/app/public/";
                     java.nio.file.Path fullPath = java.nio.file.Paths.get(basePath, e.getPathArchivo());
-
                     if (java.nio.file.Files.exists(fullPath)) {
-                        info.setImagenData(java.nio.file.Files.readAllBytes(fullPath));
+                        fileBytes = java.nio.file.Files.readAllBytes(fullPath);
+                        logger.info("✅ Evidencia leída del disco: {} ({} bytes)", fullPath, fileBytes.length);
                     } else {
-                        logger.warn("⚠️ Archivo de evidencia no encontrado en disco: {}", fullPath);
+                        logger.warn("⚠️ Archivo no encontrado en disco: {}", fullPath);
                     }
                 } catch (Exception ex) {
-                    logger.error("❌ Error al leer archivo de imagen {}: {}", e.getPathArchivo(), ex.getMessage());
+                    logger.error("❌ Error al leer archivo desde disco {}: {}", e.getPathArchivo(), ex.getMessage());
                 }
+            }
+
+            if (fileBytes != null) {
+                info.setImagenData(fileBytes);
             }
 
             return info;
@@ -742,26 +836,30 @@ public class ViajeReportePdfService {
             html.append("</div>");
         }
 
-        // SECCIONES DE FOTOS POR HITO - FASE 1
+        // SECCIONES DE EVIDENCIAS POR HITO — igual que el modal del frontend
         if (datos.getEvidencias() != null && !datos.getEvidencias().isEmpty()) {
             logger.info("📸 Total de evidencias encontradas: {}", datos.getEvidencias().size());
-            datos.getEvidencias().forEach(e -> logger.info("  - Hito: {}, Tipo: {}, Archivo: {}", e.getHito(),
-                    e.getTipoAdjunto(), e.getNombreArchivo()));
 
-            // Agrupar fotos por hito
-            agregarSeccionFotos(html, datos.getEvidencias(), "RETIRO_DE_VACIO", "FOTOS DE RETIRO DE DEPOT");
-            agregarSeccionFotos(html, datos.getEvidencias(), "LLEGADA_A_PLANTA", "FOTOS DE CARGUE");
-            agregarSeccionFotos(html, datos.getEvidencias(), "ENTREGA_A_PUERTO", "FOTOS DE ENTREGA EN PUERTO");
-            agregarSeccionFotos(html, datos.getEvidencias(), "SALIDA_DEPOT", "FOTOS DE SALIDA DEPOT");
-            // Si hay evidencias con otros hitos, mostrarlas como "FOTOS DE INCIDENTES"
-            List<ViajeReporteDetalleDto.EvidenciaInfo> otrasEvidencias = datos.getEvidencias().stream()
-                    .filter(e -> !e.getHito().equals("RETIRO_DE_VACIO") &&
-                            !e.getHito().equals("LLEGADA_A_PLANTA") &&
-                            !e.getHito().equals("ENTREGA_A_PUERTO") &&
-                            !e.getHito().equals("SALIDA_DEPOT"))
-                    .collect(Collectors.toList());
-            if (!otrasEvidencias.isEmpty()) {
-                agregarSeccionFotosGenerica(html, otrasEvidencias, "FOTOS DE OTROS EVENTOS");
+            // Indexar evidencias por (hito, secuencia) para búsqueda O(1)
+            Map<String, ViajeReporteDetalleDto.EvidenciaInfo> evidenciaMap = new LinkedHashMap<>();
+            List<ViajeReporteDetalleDto.EvidenciaInfo> unmappedEvidencias = new ArrayList<>(datos.getEvidencias());
+            
+            for (ViajeReporteDetalleDto.EvidenciaInfo ev : datos.getEvidencias()) {
+                String key = ev.getHito() + "__" + ev.getSecuencia();
+                evidenciaMap.put(key, ev);
+                logger.info("  📎 Evidencia leída del DTO: Hito={} | Secuencia={} | Nombre={} | Bytes={}",
+                    ev.getHito(),
+                    ev.getSecuencia(),
+                    ev.getNombreArchivo(),
+                    ev.getImagenData() != null ? ev.getImagenData().length : "null");
+            }
+
+            renderEvidenciasOrganizadas(html, evidenciaMap, unmappedEvidencias);
+            
+            // Si quedaron evidencias sin mapear, mostrarlas al final para que no se pierdan
+            if (!unmappedEvidencias.isEmpty()) {
+                logger.warn("⚠️ Se encontraron {} evidencias que no encajaron en el mapa estándar", unmappedEvidencias.size());
+                renderOtrasEvidencias(html, unmappedEvidencias);
             }
         } else {
             logger.warn("⚠️ No se encontraron evidencias para el viaje {}", datos.getCodigoViaje());
@@ -832,7 +930,7 @@ public class ViajeReportePdfService {
             if (datos.getMetricas().getTiempoTotalMinutos() != null) {
                 html.append("<div class='metric-large'>");
                 html.append("<div class='metric-value-large'>")
-                        .append(formatTiempoGrande(datos.getMetricas().getTiempoTotalMinutos())).append("</div>");
+                        .append(formatTiempoGrande(datos.getMetricas().getTiempoTotalMinutos() != null ? datos.getMetricas().getTiempoTotalMinutos() : 0)).append("</div>");
                 html.append("<div class='metric-label-large'>Tiempo Total</div>");
                 html.append("</div>");
             }
@@ -900,8 +998,8 @@ public class ViajeReportePdfService {
                 .header h1 { font-size: 24pt; color: #2563eb; margin-bottom: 5px; }
                 .header h2 { font-size: 16pt; color: #1e40af; margin-bottom: 10px; }
                 .subtitle { font-size: 9pt; color: #6b7280; }
-                .section { margin-bottom: 20px; page-break-inside: avoid; }
-                .section h3 { font-size: 12pt; color: #ffffff; background-color: #2563eb; padding: 8px 12px; margin-bottom: 10px; }
+                .section { margin-bottom: 25px; page-break-inside: auto; }
+                .section h3 { font-size: 12pt; color: #ffffff; background-color: #2563eb; padding: 10px 15px; margin-bottom: 0; }
                 .info-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
                 .info-table td { padding: 6px; border-bottom: 1px solid #e5e7eb; }
                 .info-table .label { font-weight: bold; width: 30%; color: #4b5563; }
@@ -921,7 +1019,16 @@ public class ViajeReportePdfService {
                 .photo-item { text-align: center; border: 1px solid #e5e7eb; padding: 10px; background-color: #f9fafb; }
                 .photo-item img { width: 100%; height: auto; max-height: 300px; object-fit: contain; }
                 .photo-caption { font-size: 8pt; color: #6b7280; margin-top: 5px; }
-                .no-image { padding: 40px; background-color: #e5e7eb; color: #9ca3af; font-size: 9pt; }
+                .no-image { padding: 20px; background-color: #e5e7eb; color: #9ca3af; font-size: 9pt; text-align: center; }
+                .no-image-req { padding: 20px 8px; background-color: #fef2f2; color: #dc2626; font-size: 8pt; text-align: center; border: 1px dashed #fca5a5; border-radius: 4px; }
+                .no-image-opt { padding: 20px 8px; background-color: #fefce8; color: #ca8a04; font-size: 8pt; text-align: center; border: 1px dashed #fde047; border-radius: 4px; }
+                .evidencia-table { width: 100%; border-collapse: collapse; font-size: 9pt; table-layout: fixed; }
+                .evidencia-table th { background-color: #2563eb; color: white; padding: 8px 6px; text-align: left; font-size: 8pt; border: 1px solid #2563eb; }
+                .evidencia-table td { padding: 8px 6px; border-bottom: 1px solid #e5e7eb; vertical-align: middle; }
+                .evidencia-table tr { page-break-inside: avoid; }
+                .evidencia-table tbody tr:nth-child(even) { background-color: #f9fafb; }
+                .badge-oblig { display: inline-block; padding: 2px 8px; background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; border-radius: 9999px; font-size: 7pt; font-weight: bold; }
+                .badge-opt { display: inline-block; padding: 2px 8px; background-color: #dbeafe; color: #1d4ed8; border: 1px solid #93c5fd; border-radius: 9999px; font-size: 7pt; font-weight: bold; }
                 .tardanza { color: #dc2626; font-weight: bold; }
                 .estado-completado { color: #059669; font-weight: bold; }
                 .estado-en_curso { color: #2563eb; font-weight: bold; }
@@ -932,18 +1039,8 @@ public class ViajeReportePdfService {
         return value != null ? value : "-";
     }
 
-    private String formatFecha(LocalDateTime fecha) {
-        return fecha != null ? fecha.format(DATETIME_FORMAT) : "-";
-    }
-
     private String formatHora(LocalDateTime fecha) {
         return fecha != null ? fecha.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")) : "-";
-    }
-
-    private String formatTiempo(int minutos) {
-        int horas = minutos / 60;
-        int mins = minutos % 60;
-        return horas + "h " + mins + "m";
     }
 
     private String formatTiempoGrande(int minutos) {
@@ -953,62 +1050,277 @@ public class ViajeReportePdfService {
     }
 
     /**
-     * Agrega una sección de fotos para un hito específico
+     * Renderiza las evidencias organizadas exactamente igual que el modal del
+     * frontend: una sección por hito, tabla con #, descripción, tipo y preview.
+     * Solo se renderizan los hitos que tienen al menos una foto subida.
+     *
+     * NOTA: iText HtmlConverter no respeta CSS max-width/max-height en imágenes.
+     * Para evitar overflow/solapamiento, cada evidencia se divide en 2 filas:
+     *   Fila A: #, Descripción, Tipo
+     *   Fila B: columna imagen (colspan 3) centrada y con tamaño fijo
+     * Las imágenes se redimensionan en Java antes de incrustar.
      */
-    private void agregarSeccionFotos(StringBuilder html, List<ViajeReporteDetalleDto.EvidenciaInfo> todasEvidencias,
-            String hitoFiltrar, String tituloSeccion) {
-        // Filtrar evidencias del hito específico
-        List<ViajeReporteDetalleDto.EvidenciaInfo> evidenciasFiltradas = todasEvidencias.stream()
-                .filter(e -> e.getHito().equals(hitoFiltrar) && e.getTipoAdjunto().equals("IMAGEN"))
-                .collect(Collectors.toList());
+    private void renderEvidenciasOrganizadas(
+            StringBuilder html,
+            Map<String, ViajeReporteDetalleDto.EvidenciaInfo> evidenciaMap,
+            List<ViajeReporteDetalleDto.EvidenciaInfo> unmappedList) {
 
-        if (!evidenciasFiltradas.isEmpty()) {
-            agregarSeccionFotosGenerica(html, evidenciasFiltradas, tituloSeccion);
+        for (HitoSet hitoSet : EVIDENCIAS_SETS) {
+            // Buscamos si hay alguna evidencia para este hito usando fallbacks
+            boolean tieneAlguna = false;
+            for (int i = 0; i < hitoSet.fotos().size(); i++) {
+                if (buscarEvidenciaConFallbacks(hitoSet.hito(), i + 1, evidenciaMap) != null) {
+                    tieneAlguna = true;
+                    break;
+                }
+            }
+            
+            if (!tieneAlguna) {
+                logger.info("  ⏭️ Saltando hito {} (sin evidencias mapeadas)", hitoSet.hito());
+                continue;
+            }
+
+            html.append("<div class='section'>");
+            html.append("<h3>EVIDENCIAS: ").append(hitoSet.nombreUi().toUpperCase()).append("</h3>");
+
+            html.append("<table class='evidencia-table'>");
+            html.append("<thead><tr>");
+            html.append("<th style='width:8%'>#</th>");
+            html.append("<th style='width:40%'>Descripción</th>");
+            html.append("<th style='width:20%'>Tipo</th>");
+            html.append("<th style='width:32%'>Estado</th>");
+            html.append("</tr></thead><tbody>");
+
+            for (int i = 0; i < hitoSet.fotos().size(); i++) {
+                FotoSet foto = hitoSet.fotos().get(i);
+                int secuencia = i + 1;
+                
+                ViajeReporteDetalleDto.EvidenciaInfo evidencia = buscarEvidenciaConFallbacks(hitoSet.hito(), secuencia, evidenciaMap);
+                
+                // Si la encontramos, la quitamos de la lista de "unmapped" para que no salga repetida al final
+                if (evidencia != null) {
+                    final String evHito = evidencia.getHito();
+                    final int evSec = evidencia.getSecuencia();
+                    unmappedList.removeIf(e -> e.getHito().equals(evHito) && e.getSecuencia() == evSec);
+                    logger.info("  ✅ Mapeado: {}__ {} -> Set: {}", evHito, evSec, hitoSet.hito());
+                }
+
+                // ─── Fila A: número + descripción + tipo + estado ───
+                String rowBg = (i % 2 == 0) ? "" : "background-color:#f9fafb;";
+                html.append("<tr style='").append(rowBg).append("'>");
+
+                // Número
+                html.append("<td style='text-align:center;font-weight:bold;vertical-align:middle;padding:8px 4px'>")
+                    .append(secuencia).append(".</td>");
+
+                // Descripción
+                html.append("<td style='vertical-align:middle;padding:8px 6px'>").append(foto.nombre());
+                if (foto.obligatorio()) {
+                    html.append(" <span style='color:#dc2626;font-weight:bold'>*</span>");
+                }
+                html.append("</td>");
+
+                // Badge Obligatorio / Opcional
+                html.append("<td style='text-align:center;vertical-align:middle;padding:8px 4px'>");
+                if (foto.obligatorio()) {
+                    html.append("<span class='badge-oblig'>Obligatorio</span>");
+                } else {
+                    html.append("<span class='badge-opt'>Opcional</span>");
+                }
+                html.append("</td>");
+
+                // Columna Estado (si hay imagen o no)
+                if (evidencia != null && evidencia.getImagenData() != null && evidencia.getImagenData().length > 0) {
+                    html.append("<td style='text-align:center;vertical-align:middle;padding:8px 4px'>")
+                        .append("<span style='color:#059669;font-weight:bold;font-size:8pt'>&#10003; Cargada</span>")
+                        .append("</td>");
+                } else {
+                    if (foto.obligatorio()) {
+                        html.append("<td style='text-align:center;vertical-align:middle;padding:8px 4px'>")
+                            .append("<span style='color:#dc2626;font-size:8pt'>Pendiente</span>")
+                            .append("</td>");
+                    } else {
+                        html.append("<td style='text-align:center;vertical-align:middle;padding:8px 4px'>")
+                            .append("<span style='color:#ca8a04;font-size:8pt'>Opcional</span>")
+                            .append("</td>");
+                    }
+                }
+                html.append("</tr>");
+
+                // ─── Fila B: imagen centrada (solo si tiene imagen) ───
+                if (evidencia != null && evidencia.getImagenData() != null && evidencia.getImagenData().length > 0) {
+                    html.append("<tr style='").append(rowBg).append("border-bottom:2px solid #e5e7eb;'>");
+                    html.append("<td colspan='4' style='text-align:center;padding:8px 16px 16px 16px;'>");
+
+                    try {
+                        // PASO 1: intentar leer como imagen (JPEG/PNG/GIF/BMP)
+                        java.awt.image.BufferedImage testImg;
+                        try (java.io.InputStream testIs = new java.io.ByteArrayInputStream(evidencia.getImagenData())) {
+                            testImg = javax.imageio.ImageIO.read(testIs);
+                        }
+
+                        if (testImg != null) {
+                            // Es una imagen válida: redimensionar a máx 400x300 manteniendo aspecto.
+                            // NO hay límite de MB previo — fotos de alta resolución se achican aquí.
+                            byte[] imgResized = resizeImageBytes(evidencia.getImagenData(), 400, 300);
+                            int[] dims = readImageDimensions(imgResized);
+                            String b64 = java.util.Base64.getEncoder().encodeToString(imgResized);
+                            String fname = evidencia.getNombreArchivo() != null
+                                    ? evidencia.getNombreArchivo().toLowerCase() : "";
+                            String mime = fname.endsWith(".png") ? "image/png" : "image/jpeg";
+                            logger.info("  🖼  Imagen embebida: {}x{} px | mime: {} | bytes: {}",
+                                    dims[0], dims[1], mime, imgResized.length);
+                            html.append("<img src='data:").append(mime).append(";base64,").append(b64)
+                                .append("' width='").append(dims[0])
+                                .append("' height='").append(dims[1])
+                                .append("' style='display:block;margin:0 auto;border:1px solid #d1d5db' />");
+                        } else {
+                            // No es imagen parseable (PDF u otro doc) — placeholder simple
+                            String nombreMostrar = evidencia.getNombreArchivo() != null
+                                    ? evidencia.getNombreArchivo() : "Archivo adjunto";
+                            logger.info("  📄 Archivo no-imagen embebido como placeholder: {}", nombreMostrar);
+                            html.append("<table style='margin:0 auto;border:2px solid #2563eb;")
+                                .append("background:#eff6ff;border-radius:4px;'><tr><td ")
+                                .append("style='padding:16px 32px;text-align:center;'>")
+                                .append("<p style='font-size:20pt;color:#2563eb;margin:0'>[ PDF ]</p>")
+                                .append("<p style='font-size:8pt;color:#1d4ed8;font-weight:bold;margin:4px 0'>")
+                                .append("Documento adjunto</p>")
+                                .append("<p style='font-size:7pt;color:#4b5563;margin:0'>")
+                                .append(nombreMostrar)
+                                .append("</p></td></tr></table>");
+                        }
+                    } catch (Exception ex) {
+                        logger.error("Error procesando archivo para PDF: {}", ex.getMessage());
+                        html.append("<p style='color:#dc2626;font-size:8pt'>Error al procesar archivo</p>");
+                    }
+                    html.append("</td>");
+                    html.append("</tr>");
+                }
+            }
+
+            html.append("</tbody></table>");
+            html.append("</div>"); // section
         }
     }
 
     /**
-     * Agrega una sección de fotos genérica
+     * Busca una evidencia en el mapa usando el nombre exacto del hito o variantes comunes.
      */
-    private void agregarSeccionFotosGenerica(StringBuilder html, List<ViajeReporteDetalleDto.EvidenciaInfo> evidencias,
-            String tituloSeccion) {
-        html.append("<div class='section' style='page-break-before: avoid;'>");
-        html.append("<h3>").append(tituloSeccion).append("</h3>");
-        html.append("<div class='photo-grid'>");
-
-        for (ViajeReporteDetalleDto.EvidenciaInfo evidencia : evidencias) {
-            html.append("<div class='photo-item'>");
-
-            // Embedder la imagen en base64 si está disponible (con límite de tamaño
-            // preventivo)
-            if (evidencia.getImagenData() != null && evidencia.getImagenData().length > 0) {
-                if (evidencia.getImagenData().length > 1024 * 1024 * 2) { // 2MB max per image in PDF
-                    html.append("<div class='no-image'>Imagen demasiado grande para el reporte de trazabilidad (")
-                            .append(String.format("%.1f", evidencia.getImagenData().length / 1024.0 / 1024.0))
-                            .append(" MB)</div>");
-                } else {
-                    try {
-                        String base64Image = java.util.Base64.getEncoder().encodeToString(evidencia.getImagenData());
-                        html.append("<img src='data:image/jpeg;base64,").append(base64Image).append("' ");
-                        html.append("alt='").append(safe(evidencia.getNombreArchivo())).append("' />");
-                    } catch (Exception ex) {
-                        html.append("<div class='no-image'>Error cargando esta imagen: ").append(ex.getMessage())
-                                .append("</div>");
-                    }
-                }
-            } else {
-                html.append("<div class='no-image'>Sin imagen o datos binarios vacíos</div>");
-            }
-
-            html.append("<p class='photo-caption'>");
-            if (evidencia.getFechaUpload() != null) {
-                html.append(evidencia.getFechaUpload().format(DATETIME_FORMAT));
-            }
-            html.append("</p>");
-            html.append("</div>");
+    private ViajeReporteDetalleDto.EvidenciaInfo buscarEvidenciaConFallbacks(
+            String hitoBusqueda, int secuencia, Map<String, ViajeReporteDetalleDto.EvidenciaInfo> map) {
+        
+        // 1. Intento exacto
+        String key = hitoBusqueda + "__" + secuencia;
+        if (map.containsKey(key)) return map.get(key);
+        
+        // 2. Fallbacks específicos por hito
+        if ("LLEGADA_DEPOT".equals(hitoBusqueda)) {
+            if (map.containsKey("LLEGADA_AL_DEPOT__" + secuencia)) return map.get("LLEGADA_AL_DEPOT__" + secuencia);
+            if (map.containsKey("RETIRO_DE_VACIO__" + secuencia)) return map.get("RETIRO_DE_VACIO__" + secuencia);
         }
+        if ("SALIDA_DEPOT".equals(hitoBusqueda)) {
+            if (map.containsKey("SALIDA_AL_DEPOT__" + secuencia)) return map.get("SALIDA_AL_DEPOT__" + secuencia);
+        }
+        if ("LLEGADA_PLANTA".equals(hitoBusqueda)) {
+            if (map.containsKey("LLEGADA_A_PLANTA__" + secuencia)) return map.get("LLEGADA_A_PLANTA__" + secuencia);
+        }
+        if ("LLEGADA_PUERTO".equals(hitoBusqueda)) {
+            if (map.containsKey("ENTREGA_A_PUERTO__" + secuencia)) return map.get("ENTREGA_A_PUERTO__" + secuencia);
+        }
+        
+        return null;
+    }
 
-        html.append("</div>");
-        html.append("</div>");
+    /**
+     * Renderiza evidencias que no coincidieron con ninguna sección estándar.
+     * Útil para diagnosticar problemas de hito/secuencia.
+     */
+    private void renderOtrasEvidencias(StringBuilder html, List<ViajeReporteDetalleDto.EvidenciaInfo> evidencias) {
+        html.append("<div class='section'>");
+        html.append("<h3 style='background-color: #6b7280;'>OTRAS EVIDENCIAS (Hitos no mapeados)</h3>");
+        html.append("<table class='evidencia-table'>");
+        html.append("<thead><tr><th style='width:6%'>#</th><th style='width:42%'>Hito / Archivo</th><th style='width:16%'>Tipo</th><th style='width:36%'>Estado</th></tr></thead><tbody>");
+
+        for (int i = 0; i < evidencias.size(); i++) {
+            ViajeReporteDetalleDto.EvidenciaInfo ev = evidencias.get(i);
+            String rowBg = (i % 2 == 0) ? "" : "background-color:#f9fafb;";
+            html.append("<tr style='").append(rowBg).append("'>");
+            html.append("<td style='text-align:center;'>").append(i+1).append(".</td>");
+            html.append("<td>").append(ev.getHito()).append(" / ").append(ev.getNombreArchivo()).append("</td>");
+            html.append("<td style='text-align:center;'>").append(ev.getTipoAdjunto()).append("</td>");
+            html.append("<td style='text-align:center;'>Cargada</td></tr>");
+
+            if (ev.getImagenData() != null) {
+                html.append("<tr style='").append(rowBg).append("border-bottom:2px solid #e5e7eb;'>");
+                html.append("<td colspan='4' style='text-align:center;padding:10px;'>");
+                try {
+                    byte[] imgResized = resizeImageBytes(ev.getImagenData(), 400, 300);
+                    int[] dims = readImageDimensions(imgResized);
+                    String b64 = java.util.Base64.getEncoder().encodeToString(imgResized);
+                    String mime = (ev.getNombreArchivo() != null && ev.getNombreArchivo().toLowerCase().endsWith(".png")) ? "image/png" : "image/jpeg";
+                    html.append("<img src='data:").append(mime).append(";base64,").append(b64).append("' width='").append(dims[0]).append("' height='").append(dims[1]).append("' style='display:block;margin:0 auto;border:1px solid #ccc' />");
+                } catch (Exception e) {
+                    html.append("[ Error al renderizar imagen ]");
+                }
+                html.append("</td></tr>");
+            }
+        }
+        html.append("</tbody></table></div>");
+    }
+
+    /**
+     * Redimensiona una imagen (bytes) a un máximo de maxW×maxH píxeles
+     * manteniendo la proporción. Devuelve los bytes originales si no es
+     * una imagen reconocible (pdf/svg/etc.).
+     */
+    private byte[] resizeImageBytes(byte[] originalBytes, int maxW, int maxH) throws Exception {
+        try (java.io.InputStream is = new java.io.ByteArrayInputStream(originalBytes)) {
+            java.awt.image.BufferedImage original = javax.imageio.ImageIO.read(is);
+            if (original == null) {
+                return originalBytes;
+            }
+
+            int srcW = original.getWidth();
+            int srcH = original.getHeight();
+
+            double ratioW = (double) maxW / srcW;
+            double ratioH = (double) maxH / srcH;
+            double ratio  = Math.min(ratioW, ratioH);
+
+            // Si ya cabe, devolver tal cual
+            if (ratio >= 1.0) return originalBytes;
+
+            int dstW = Math.max(1, (int) (srcW * ratio));
+            int dstH = Math.max(1, (int) (srcH * ratio));
+
+            java.awt.image.BufferedImage resized =
+                new java.awt.image.BufferedImage(dstW, dstH, java.awt.image.BufferedImage.TYPE_INT_RGB);
+            java.awt.Graphics2D g2d = resized.createGraphics();
+            g2d.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                                 java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g2d.setColor(java.awt.Color.WHITE);
+            g2d.fillRect(0, 0, dstW, dstH);
+            g2d.drawImage(original, 0, 0, dstW, dstH, null);
+            g2d.dispose();
+
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            javax.imageio.ImageIO.write(resized, "JPEG", out);
+            return out.toByteArray();
+        }
+    }
+
+    /**
+     * Lee las dimensiones reales de una imagen en bytes.
+     * Devuelve [width, height]. Si no es imagen, devuelve [320, 240] como fallback.
+     */
+    private int[] readImageDimensions(byte[] imageBytes) {
+        try (java.io.InputStream is = new java.io.ByteArrayInputStream(imageBytes)) {
+            java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(is);
+            if (img != null) {
+                return new int[]{img.getWidth(), img.getHeight()};
+            }
+        } catch (Exception ignored) {}
+        return new int[]{320, 240}; // fallback seguro
     }
 }
+
