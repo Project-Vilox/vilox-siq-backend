@@ -11,6 +11,7 @@ import com.itextpdf.kernel.pdf.PdfWriter;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
@@ -28,6 +29,9 @@ import java.util.stream.Collectors;
 public class ViajeReportePdfService {
 
     private static final Logger logger = LoggerFactory.getLogger(ViajeReportePdfService.class);
+
+    @Value("${app.brand-name}")
+    private String appName;
     private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
 
     private final ViajeRepository viajeRepository;
@@ -599,7 +603,8 @@ public class ViajeReportePdfService {
 
         // Cabecera
         html.append("<div class='header'>");
-        html.append("<h1>VILOX</h1>");
+        // html.append("<h1>VILOX</h1>");
+         html.append("<h1>").append(appName).append("</h1>");
         html.append("<h2>REPORTE DE TRAZABILIDAD</h2>");
         html.append("<p class='subtitle'>Código de Viaje: ").append(datos.getCodigoViaje()).append("</p>");
         html.append("<p class='subtitle'>Fecha de Emisión: ").append(LocalDateTime.now().format(DATETIME_FORMAT))

@@ -43,7 +43,10 @@ public class AlarmServiceImpl implements AlarmService {
             LocalDateTime startTime = LocalDateTime.now();
             DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-            List<Track> allPendingTracks = trackRepository.findByAlarmStatus("PENDING");
+            List<Track> allPendingTracks = trackRepository.findByAlarmStatus("PENDING")
+                    .stream()
+                    .filter(t -> !Boolean.TRUE.equals(t.getIsDemo()))
+                    .collect(java.util.stream.Collectors.toList());
             Map<String, List<Track>> tracksByImei = allPendingTracks.stream()
                     .collect(Collectors.groupingBy(Track::getImei));
 

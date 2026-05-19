@@ -91,6 +91,9 @@ public class Track {
     @CreationTimestamp
     private LocalDateTime creationDate;
 
+    @Column(name = "is_demo", nullable = false)
+    private Boolean isDemo = false;
+
     @Column(name = "alarm_status")
     private String alarmStatus = "PENDING"; // Supports PENDING, ALARM_REGISTERED, ERROR_DUPLICATE, EVALUATED
 

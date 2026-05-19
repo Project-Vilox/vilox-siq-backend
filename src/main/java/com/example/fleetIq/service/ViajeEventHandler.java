@@ -60,10 +60,12 @@ public class ViajeEventHandler {
                 System.out.println("🔄 Viaje " + viajeId + " cambió de " + estadoAnterior + " a " + nuevoEstado);
             }
 
-            // 2. DISPARAR REPORTE (Solo si el viaje acaba de llegar a estado completado)
-            if ("completado".equals(nuevoEstado)) {
+            // 2. DISPARAR REPORTE (Solo si el viaje acaba de llegar a estado completado y no es demo)
+            if ("completado".equals(nuevoEstado) && !Boolean.TRUE.equals(viaje.getIsDemo())) {
                 System.out.println("📊 Generando reporte final para el viaje: " + viaje.getCodigoViaje());
                 viajeReporteService.generarYGuardarReporte(viaje, tramos);
+            } else if ("completado".equals(nuevoEstado)) {
+                System.out.println("🎭 Viaje demo completado — reporte omitido: " + viaje.getCodigoViaje());
             }
 
         } catch (Exception e) {

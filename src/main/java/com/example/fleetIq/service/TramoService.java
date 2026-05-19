@@ -24,4 +24,7 @@ public interface TramoService {
 
     List<ParadaDetectadaDto> analizarParadasDelTramo(String tramoId, List<Track> tracks);
 
+    /** Resuelve lat/lon de un establecimiento: usa coordenadas existentes o calcula centroide de geocerca. */
+    double[] resolverCoordenadasEstablecimiento(String establecimientoId);
+
 }
