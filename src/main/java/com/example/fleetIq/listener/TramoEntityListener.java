@@ -169,11 +169,6 @@ public class TramoEntityListener {
    * - Tardanza = horaLlegadaRealDestino - horaSalidaProgramada
    */
   private void calcularTardanzaDestino(Tramo tramo) {
-    // Si ya fue calculada, no recalcular
-    if (tramo.getTardanzaCita2() != null) {
-      return;
-    }
-
     String nombreDestino = tramo.getEstablecimientoDestino() != null
         ? tramo.getEstablecimientoDestino().getNombre()
         : "N/A";
@@ -183,7 +178,10 @@ public class TramoEntityListener {
     System.out.println("│ Establecimiento: " + String.format("%-24s", nombreDestino) + "│");
     System.out.println("└─────────────────────────────────────────┘");
 
-    LocalDateTime llegadaProgramadaDestino = tramo.getHoraSalidaProgramada();
+    // fechaFinProgramada del viaje = hora programada de llegada al destino (cita 2)
+    LocalDateTime llegadaProgramadaDestino = (tramo.getViaje() != null)
+        ? tramo.getViaje().getFechaFinProgramada()
+        : null;
     LocalDateTime llegadaRealDestino = tramo.getHoraLlegadaRealDestino();
 
     // 1️⃣ TARDANZA EN DESTINO
@@ -193,8 +191,12 @@ public class TramoEntityListener {
 
       String estado = tramo.getTardanzaCita2() == 0 ? "✅ A TIEMPO" : "⚠️ CON RETRASO";
       System.out.println("   🕐 Tardanza Destino: " + tramo.getTardanzaCita2() + " min " + estado);
-      System.out.println("      Programada: " + llegadaProgramadaDestino);
+      System.out.println("      Programada (fechaFinProgramada viaje): " + llegadaProgramadaDestino);
       System.out.println("      Real: " + llegadaRealDestino);
+    } else {
+      System.out.println("   ⚠️ Sin datos suficientes para calcular tardanza destino");
+      System.out.println("      fechaFinProgramada viaje: " + llegadaProgramadaDestino);
+      System.out.println("      horaLlegadaRealDestino: " + llegadaRealDestino);
     }
   }
 

@@ -47,6 +47,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.OptionalDouble;
 import java.util.stream.Collectors;
 
 @Service
@@ -1112,6 +1113,14 @@ public class TramoServiceImpl implements TramoService {
         }
     }
 
+    @Override
+    @Transactional
+    public double[] resolverCoordenadasEstablecimiento(String establecimientoId) {
+        CoordenadaDto coords = obtenerCoordenadasEstablecimiento(establecimientoId);
+        if (coords == null) return null;
+        return new double[]{coords.latitud, coords.longitud};
+    }
+
     @Transactional
     public CoordenadaDto obtenerCoordenadasEstablecimiento(String establecimientoId) {
         try {
@@ -1464,9 +1473,35 @@ public class TramoServiceImpl implements TramoService {
                 System.out.println(
                         "   📏 Ruta restante: " + String.format("%.2f km", rutaRestante.distanciaMetros / 1000));
 
-                // Calcular ETA
+                // Calcular ETA — OSRM como base, corregido por velocidad GPS real
+                // Factor = velocidadGPS / velocidadAsumidaOSRM
+                // Si el camión va más lento que OSRM → ETA crece (correcto)
+                // Si va más rápido → ETA no puede quedar menor que OSRM (piso)
                 ZonedDateTime ahoraPeru = ZonedDateTime.now(ZONA_PERU);
-                ZonedDateTime etaActual = ahoraPeru.plusMinutes((long) Math.ceil(rutaRestante.duracionMinutos));
+                OptionalDouble velocidadReal = calcularVelocidadPromedioKmh(imei, 20);
+                long etaMinutos;
+                long etaOsrmMinutos = (long) Math.ceil(rutaRestante.duracionMinutos);
+                if (velocidadReal.isPresent() && rutaRestante.distanciaMetros > 0
+                        && rutaRestante.duracionMinutos > 0) {
+                    // Velocidad implícita que usó OSRM para esta ruta
+                    double velocidadOsrmKmh = (rutaRestante.distanciaMetros / 1000.0)
+                            / (rutaRestante.duracionMinutos / 60.0);
+                    double factor = velocidadReal.getAsDouble() / velocidadOsrmKmh;
+                    // Corregir duración OSRM con el factor real
+                    long etaCorregido = (long) Math.ceil(rutaRestante.duracionMinutos / factor);
+                    // Piso: ETA nunca puede ser menor que OSRM (no adelantamos)
+                    // Techo: no más de 2× OSRM (evita anomalías GPS por parada momentánea)
+                    etaMinutos = Math.max(etaOsrmMinutos, Math.min(etaCorregido, etaOsrmMinutos * 2));
+                    System.out.println("   ✅ ETA corregido: OSRM=" + etaOsrmMinutos
+                            + " min | GPS=" + String.format("%.1f", velocidadReal.getAsDouble())
+                            + " km/h | OSRM asumió=" + String.format("%.1f", velocidadOsrmKmh)
+                            + " km/h | factor=" + String.format("%.2f", factor)
+                            + " | ETA final=" + etaMinutos + " min");
+                } else {
+                    etaMinutos = etaOsrmMinutos;
+                    System.out.println("   🌐 ETA calculado por OSRM (fallback): " + etaMinutos + " min");
+                }
+                ZonedDateTime etaActual = ahoraPeru.plusMinutes(etaMinutos);
 
                 // Calcular ETA programado y demoras
                 LocalDateTime horaSalidaReal = tramo.getHoraSalidaReal();
@@ -1525,7 +1560,8 @@ public class TramoServiceImpl implements TramoService {
                         rutaTotal.distanciaMetros,
                         rutaRestante.distanciaMetros,
                         tramo,
-                        esTramoHeredado);
+                        esTramoHeredado,
+                        rutaTotal.duracionMinutos);
 
                 dto.setEta(etaStr);
                 dto.setAvance(avance);
@@ -1561,7 +1597,8 @@ public class TramoServiceImpl implements TramoService {
             double distTotal,
             double distRestante,
             Tramo tramo,
-            boolean esTramoHeredado) {
+            boolean esTramoHeredado,
+            double duracionTotalMinutos) {
 
         System.out.println("   📊 Cálculo de avance:");
         System.out.println("      Total: " + String.format("%.2f km", distTotal / 1000));
@@ -1577,8 +1614,10 @@ public class TramoServiceImpl implements TramoService {
                 LocalDateTime ahora = LocalDateTime.now();
                 long minutosTranscurridos = Duration.between(tramo.getHoraSalidaReal(), ahora).toMinutes();
 
-                // Estimar duración total: distancia / velocidad promedio 50 km/h
-                double duracionEstimadaMinutos = (distTotal / 1000.0) / 50.0 * 60.0;
+                // Duración total desde OSRM; fallback a 50 km/h si no disponible
+                double duracionEstimadaMinutos = duracionTotalMinutos > 0
+                        ? duracionTotalMinutos
+                        : (distTotal / 1000.0) / 50.0 * 60.0;
 
                 System.out.println("      🕐 Calculando avance por tiempo transcurrido...");
                 System.out.println("      ⏱️ Transcurrido: " + minutosTranscurridos + " min");
@@ -1697,6 +1736,53 @@ public class TramoServiceImpl implements TramoService {
             return null;
         }
     }
+    // ========================================================================
+    // MÉTODO: Calcular velocidad promedio real desde tracks GPS
+    // ========================================================================
+
+    /**
+     * Calcula la velocidad promedio real del vehículo usando los últimos
+     * windowMinutes minutos de tracks GPS. Solo considera tracks con
+     * speed > 3.0 km/h (descarta paradas). Requiere mínimo 5 tracks en
+     * movimiento para ser confiable; si no hay suficientes, devuelve vacío
+     * y el llamador cae al fallback OSRM.
+     */
+    private OptionalDouble calcularVelocidadPromedioKmh(String imei, int windowMinutes) {
+        long ahora = Instant.now().getEpochSecond();
+        long desde = ahora - (windowMinutes * 60L);
+        List<Track> tracks = trackRepository.findTracksByImeiInTimeRange(imei, desde, ahora);
+
+        List<Track> enMovimiento = tracks.stream()
+                .filter(t -> t.getSpeed() != null && t.getSpeed() > 3.0)
+                .collect(java.util.stream.Collectors.toList());
+
+        if (enMovimiento.size() < 5) {
+            System.out.println("   ⚠️ Velocidad GPS: solo " + enMovimiento.size()
+                    + " tracks en movimiento en últimos " + windowMinutes + " min → fallback OSRM");
+            return OptionalDouble.empty();
+        }
+
+        double sumaPonderada = 0.0;
+        double sumaPesos     = 0.0;
+        for (int i = 1; i < enMovimiento.size(); i++) {
+            Track prev = enMovimiento.get(i - 1);
+            Track curr = enMovimiento.get(i);
+            double deltaSeg = curr.getGpstime() - prev.getGpstime();
+            if (deltaSeg > 0 && deltaSeg < 300) { // ignorar gaps > 5 min
+                sumaPonderada += curr.getSpeed() * deltaSeg;
+                sumaPesos     += deltaSeg;
+            }
+        }
+
+        if (sumaPesos == 0) return OptionalDouble.empty();
+
+        double promedio = sumaPonderada / sumaPesos;
+        System.out.println("   🚛 Velocidad GPS promedio (últimos " + windowMinutes
+                + " min): " + String.format("%.1f km/h", promedio)
+                + " (" + enMovimiento.size() + " tracks)");
+        return OptionalDouble.of(promedio);
+    }
+
     // ========================================================================
     // MÉTODO: Llamar a OSRM
     // ========================================================================

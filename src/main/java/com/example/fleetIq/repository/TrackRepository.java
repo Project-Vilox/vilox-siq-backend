@@ -2,9 +2,11 @@ package com.example.fleetIq.repository;
 
 import com.example.fleetIq.model.Track;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -79,6 +81,16 @@ public interface TrackRepository extends JpaRepository<Track, Long> {
         List<Track> findLatestPendingTracksByImeiWithinLastMinutes(@Param("timestamp") Long timestamp);
 
         List<Track> findByAlarmStatus(String alarmStatus);
+
+        @Modifying
+        @Transactional
+        @Query("DELETE FROM Track t WHERE t.imei = :imei AND t.alarmStatus = :alarmStatus")
+        void deleteByImeiAndAlarmStatus(@Param("imei") String imei, @Param("alarmStatus") String alarmStatus);
+
+        @Modifying
+        @Transactional
+        @Query("DELETE FROM Track t WHERE t.imei = :imei AND t.isDemo = true")
+        void deleteByImeiAndIsDemoTrue(@Param("imei") String imei);
 
         Track findByImeiAndGpstimeAndLatitudeAndLongitudeAndGpstimeBetween(
                         String imei, Long gpstime, Double latitude,
